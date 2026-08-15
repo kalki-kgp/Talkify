@@ -26,6 +26,12 @@ Observation and Testing macro plugins but not `PreviewsMacros`, so previews are
 the one construct that cannot be expanded outside Xcode. They are Canvas-only
 code, so nothing in the built app changes.
 
+`FoundationModelsMacros` is absent for the same reason, so `@Generable` and
+`@Guide` cannot be used in code that has to build here. `Talkify/Cleanup/` works
+around that rather than through it: plain-string responses where a string will
+do, and `DynamicGenerationSchema` — a runtime API needing no macro — where the
+answer has to be structured.
+
 ## What is copied from an installed Talkify
 
 Three build products come from `actool` and `metal`, which only Xcode has:

@@ -252,6 +252,8 @@ private struct SettingsContent: View {
           LanguageSettingsView(settings: settings, runtimeState: runtimeState)
         case .vocabulary:
           VocabularySettingsView(vocabulary: vocabulary)
+        case .cleanup:
+          CleanupSettingsView(settings: settings)
         case .shortcuts:
           ShortcutsSettingsView(settings: settings)
         case .updates:

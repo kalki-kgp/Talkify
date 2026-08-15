@@ -142,6 +142,16 @@ final class DictationHUDController {
     content.text = "Finalizing…"
   }
 
+  /// The session is finished recognizing and is waiting on Text Cleanup. It
+  /// gets its own band text because it is the one part of a session that can
+  /// take a visible second with nothing else on screen moving, and an unlabeled
+  /// second reads as a hang.
+  func showCleaning() {
+    guard case .session = mode else { return }
+    stopVoiceVisual()
+    content.text = "Polishing…"
+  }
+
   func hide() {
     cancelMessageDismiss()
     stopVoiceVisual()

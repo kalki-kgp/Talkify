@@ -18,6 +18,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
   case readAloud
   case language
   case vocabulary
+  case cleanup
   case shortcuts
   case updates
   case insights
@@ -32,6 +33,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case .readAloud: "Read Aloud"
     case .language: "Language"
     case .vocabulary: "Vocabulary"
+    case .cleanup: "Cleanup"
     case .shortcuts: "Shortcuts"
     case .updates: "Updates"
     case .insights: "Insights"
@@ -45,6 +47,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case .readAloud: "Choose the voice that reads selected text"
     case .language: "Pick your dictation languages and their keys"
     case .vocabulary: "Teach Talkify the words it keeps getting wrong"
+    case .cleanup: "Tidy up dictated text before it lands"
     case .shortcuts: "Rebind the Direct Dictation and Read Aloud keys"
     case .updates: "Keep Talkify current"
     case .insights: "Review your local Direct Dictation activity"
@@ -58,6 +61,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case .readAloud: "speaker.wave.2"
     case .language: "globe"
     case .vocabulary: "character.book.closed"
+    case .cleanup: "wand.and.sparkles"
     case .shortcuts: "keyboard"
     case .updates: "arrow.down.circle"
     case .insights: "chart.bar.xaxis"

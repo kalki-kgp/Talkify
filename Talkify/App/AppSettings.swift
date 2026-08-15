@@ -25,6 +25,9 @@ final class AppSettings {
     static let recognitionLocale = "recognitionLocale"
     static let secondaryRecognitionLocale = "recognitionLocaleSecondary"
     static let secondaryTriggerBinding = "dictationTriggerBindingSecondary"
+    static let cleanupEnabled = "cleanupEnabled"
+    static let cleanupPacing = "cleanupPacing"
+    static let cleanupDeadline = "cleanupDeadlineMilliseconds"
   }
 
   @ObservationIgnored
@@ -108,6 +111,21 @@ final class AppSettings {
     !secondaryRecognitionLocaleIdentifier.isEmpty
   }
 
+  /// Off by default. Cleanup adds a model pass between the recognizer
+  /// finishing and the text landing, and that delay is something a person
+  /// opts into rather than discovers.
+  var isCleanupEnabled: Bool {
+    didSet { defaults.set(isCleanupEnabled, forKey: Keys.cleanupEnabled) }
+  }
+
+  var cleanupPacing: CleanupPacing {
+    didSet { defaults.set(cleanupPacing.rawValue, forKey: Keys.cleanupPacing) }
+  }
+
+  var cleanupDeadlineMilliseconds: Int {
+    didSet { defaults.set(cleanupDeadlineMilliseconds, forKey: Keys.cleanupDeadline) }
+  }
+
   /// Transient, never persisted: true while a Shortcuts key recorder is
   /// armed, so global trigger handling pauses and the rebind keystroke
   /// cannot start a session.
@@ -135,6 +153,14 @@ final class AppSettings {
     secondaryTriggerBinding = Self.storedBinding(
       in: defaults, key: Keys.secondaryTriggerBinding
     ) ?? .rightOptionTrigger
+    isCleanupEnabled = defaults.bool(forKey: Keys.cleanupEnabled)
+    cleanupPacing = Self.stored(in: defaults, key: Keys.cleanupPacing) ?? .deadline
+    // An absent key reads as 0, and a value from another build may not be one
+    // of the offered steps; both resolve onto the picker's own choices.
+    let storedDeadline = defaults.integer(forKey: Keys.cleanupDeadline)
+    cleanupDeadlineMilliseconds = storedDeadline > 0
+      ? CleanupDeadline.nearestChoice(to: storedDeadline)
+      : CleanupDeadline.default
   }
 
   private static func stored<Value: RawRepresentable<String>>(

@@ -26,6 +26,7 @@ final class DirectDictationController {
   private let textInsertionService = TextInsertionService()
   private let usageTracker: UsageTracker
   private let vocabulary: VocabularyList
+  private let cleanupService = CleanupService()
 
   private var keyEventMonitor: GlobalKeyEventMonitor?
   private var machine = DictationSessionMachine()
@@ -134,7 +135,11 @@ final class DirectDictationController {
   func applyVocabulary() {
     Task { [weak self] in
       guard let self else { return }
-      await speechService.setVocabulary(vocabulary.contextualStrings)
+      let terms = vocabulary.contextualStrings
+      await speechService.setVocabulary(terms)
+      // The same list, for the opposite reason: Speech is biased toward these
+      // spellings, and cleanup is told not to undo them.
+      await cleanupService.setProtectedTerms(terms)
     }
   }
 
@@ -164,6 +169,10 @@ final class DirectDictationController {
     // would have to be re-biased, and both languages should be warmed once,
     // already biased.
     await speechService.setVocabulary(vocabulary.contextualStrings)
+    await cleanupService.setProtectedTerms(vocabulary.contextualStrings)
+    // Warmed alongside the analyzers and for the same reason: the model is
+    // asked for the first time at the end of a session, not the start of one.
+    await cleanupService.prepare()
     await speechService.retainOnly(locales: bound)
     try await speechService.prewarm(locale: primary)
 
@@ -194,8 +203,9 @@ final class DirectDictationController {
     keyEventMonitor?.stop()
     isPrepared = false
 
-    Task {
+    Task { [speechService, cleanupService] in
       await speechService.shutDown()
+      await cleanupService.shutDown()
     }
   }
 
@@ -449,11 +459,14 @@ final class DirectDictationController {
       guard let self else { return }
       do {
         let text = try await speechService.finish()
+        // Cleanup runs before the HUD comes down, so the wait it adds reads as
+        // the session still working rather than as nothing happening.
+        let insertedText = await cleanedText(for: text)
         hudController.hide()
-        await textInsertionService.insert(text, into: focusedTarget)
+        await textInsertionService.insert(insertedText, into: focusedTarget)
         hudController.playPasteSound()
         send(.sessionEnded)
-        let wordCount = UsageMetrics.wordCount(in: text)
+        let wordCount = UsageMetrics.wordCount(in: insertedText)
         await usageTracker.recordSession(
           wordCount: wordCount,
           speakingDuration: speakingDuration
@@ -462,6 +475,17 @@ final class DirectDictationController {
         fail(message: error.localizedDescription, wasCancelled: false)
       }
     }
+  }
+
+  /// The finalized draft, polished if the person asked for that and the model
+  /// managed it. Every other outcome — cleanup off, no locale, an unavailable
+  /// model, a refusal, a missed deadline — returns exactly what was said.
+  private func cleanedText(for text: String) async -> String {
+    guard settings.isCleanupEnabled, let locale = locale(for: activeSlot) else { return text }
+    hudController.showCleaning()
+    return await cleanupService.clean(text, locale: locale, pacing: settings.cleanupPacing.pacing(
+      deadlineMilliseconds: settings.cleanupDeadlineMilliseconds
+    ))
   }
 
   /// A failure path always ends with the message shown after the reset —

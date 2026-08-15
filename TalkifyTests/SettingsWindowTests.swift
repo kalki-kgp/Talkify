@@ -30,7 +30,8 @@ struct SettingsWindowTests {
 
   @Test func settingsSectionsStayFocusedOnImplementedFeatures() {
     let expected: [SettingsSection] = [
-      .appearance, .sounds, .readAloud, .language, .vocabulary, .shortcuts, .updates, .insights,
+      .appearance, .sounds, .readAloud, .language, .vocabulary, .cleanup, .shortcuts, .updates,
+      .insights,
     ]
     #expect(SettingsSection.allCases == expected)
     #expect(SettingsSectionGroup.settings.sections == expected)
