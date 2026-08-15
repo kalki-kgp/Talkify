@@ -82,13 +82,26 @@ All 109 tests run and pass this way.
 
 ## Signing and permissions
 
-The bundle is ad-hoc signed (`codesign --sign -`), which is free and needs no
-Apple Developer account. Two consequences:
+The bundle is signed with a local certificate if one exists, and ad-hoc
+otherwise. Neither needs an Apple Developer account. Two consequences:
 
-- Talkify needs Accessibility and Input Monitoring, and macOS keys those grants
-  to the code signature. An ad-hoc signature changes with every build, so a
-  rebuild means granting them again. Set `TALKIFY_SIGN_IDENTITY` to a stable
-  self-signed certificate to avoid that.
+- **Run `scripts/create-signing-identity.sh` once.** Talkify needs Accessibility
+  and Input Monitoring, and macOS keys those grants to the app's designated
+  requirement. An ad-hoc signature has none, so the grant falls back to the code
+  hash — which changes on every build. The symptom is nasty rather than obvious:
+  Talkify keeps its row in the permission list with the checkbox on, while
+  `AXIsProcessTrusted()` returns false and the dictation key does nothing. Every
+  build leaves another dead row behind. The script creates a certificate that
+  stays put, so the requirement becomes `identifier "com.tgomareli.Talkify" and
+  certificate leaf = H"…"` and the grant survives rebuilds.
+
+  After creating it, remove any Talkify rows already in Accessibility and Input
+  Monitoring with "−" before re-adding — a row from an ad-hoc build looks
+  granted and is not. `tccutil reset Accessibility com.tgomareli.Talkify` and
+  `tccutil reset ListenEvent com.tgomareli.Talkify` clear them all at once.
+
+  `TALKIFY_SIGN_IDENTITY` overrides which identity is used, and `-` forces
+  ad-hoc back.
 - Sparkle's update checks are turned off in the built `Info.plist`. A local build
   is ahead of the appcast, and an "update" would replace it with an upstream
   release.

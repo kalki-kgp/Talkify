@@ -32,7 +32,22 @@ VERSION="${TALKIFY_VERSION:-0.3.3-local}"
 BUILD_NUMBER="${TALKIFY_BUILD:-120}"
 BUNDLE_ID="${TALKIFY_BUNDLE_ID:-com.tgomareli.Talkify}"
 CONFIGURATION="${TALKIFY_CONFIGURATION:-release}"
-SIGN_IDENTITY="${TALKIFY_SIGN_IDENTITY:--}"
+# Prefer a stable local identity over ad-hoc signing. macOS keys an
+# Accessibility grant to the code hash when an app is signed ad-hoc, and that
+# hash changes on every build — so the app reappears in the permission list
+# looking granted while AXIsProcessTrusted() says no, and the dictation key
+# goes dead after every rebuild. A signing identity gives the app a stable
+# designated requirement, and the grant survives.
+#
+# Create one with scripts/create-signing-identity.sh; without it this falls
+# back to ad-hoc and everything still builds.
+LOCAL_SIGN_IDENTITY="Talkify Local Signing"
+if [[ -z "${TALKIFY_SIGN_IDENTITY:-}" ]] \
+  && security find-identity -v -p codesigning 2>/dev/null | grep -q "$LOCAL_SIGN_IDENTITY"; then
+  SIGN_IDENTITY="$LOCAL_SIGN_IDENTITY"
+else
+  SIGN_IDENTITY="${TALKIFY_SIGN_IDENTITY:--}"
+fi
 
 RUN_TESTS=0
 RUN_BENCHMARK=0
