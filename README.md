@@ -12,6 +12,63 @@
   <img src="https://github.com/tornikegomareli/Talkify/actions/workflows/ci.yml/badge.svg" />
 </p>
 
+> **This is a fork.** Talkify is [Tornike Gomareli's](https://github.com/tornikegomareli/Talkify)
+> — a menu-bar dictation app for macOS that is genuinely lovely to use. This fork
+> adds the personalization layer: it learns your words and your writing style, so
+> what lands in the field is what you would have typed. Everything below the next
+> section is upstream's, unchanged.
+
+## What this fork adds
+
+Free dictation gets the words down. Paid dictation gets *your* words down. That gap
+is two features, and both of them are here.
+
+**A vocabulary that sticks.** Product names, your teammates' names, the acronyms
+only your team uses. Add them once in **Settings → Vocabulary** and the recognizer
+stops mangling them. Terms are applied while the session is warming up, not on the
+keypress, so they cost you nothing at the moment you are waiting to speak.
+
+**Cleanup that sounds like you.** *"um so I was thinking we could uh ship it friday"*
+lands as a sentence. Filler goes, punctuation arrives, and per-app style rules mean
+Slack reads casual while email reads sharp. Runs on Apple's on-device model between
+the recognizer finishing and the text being inserted — with a deadline, so a slow
+pass inserts your raw text rather than making you wait.
+
+**It learns from your edits.** When you fix something Talkify inserted, it notices.
+Those corrections are distilled into short, readable style rules and vocabulary
+suggestions that you approve or reject one by one — nothing is ever applied behind
+your back. The raw text is dropped the moment it has been distilled.
+
+**Diagnostics, so "nothing happened" has an answer.** Permission state and what the
+last dictation actually did, in **Settings → Diagnostics**.
+
+### Privacy, specifically
+
+The additions keep upstream's rule: **no network requests, no audio stored, no
+transcript history.** Cleanup uses Apple's on-device `FoundationModels` — nothing is
+sent anywhere. The one exception is deliberate and bounded: to learn from your edits,
+a capped buffer of at most 20 correction pairs is kept in
+`~/Library/Application Support/Talkify/`. It is distilled into style rules and
+cleared, and **Settings → Cleanup → Forget captured corrections** erases it and its
+file immediately.
+
+### Requirements for the additions
+
+- Vocabulary and Diagnostics work on any Mac that runs Talkify.
+- **Cleanup requires Apple Intelligence to be enabled** (System Settings → Apple
+  Intelligence & Siri). Without it, cleanup reports itself unavailable in Settings
+  and dictation inserts your raw text exactly as upstream does — nothing breaks, the
+  feature is simply inert.
+
+### Building this fork
+
+`scripts/build-local-app.sh` builds and packages the app with only the Command Line
+Tools, no 15 GB Xcode install — see [`docs/local-build.md`](docs/local-build.md).
+Run `scripts/create-signing-identity.sh` once first, or macOS will quietly drop your
+Accessibility grant on every rebuild.
+
+---
+
 ## Showcase
 
 
@@ -114,7 +171,7 @@ Code is organized into folders, callbacks only flow one way from the main wiring
 ## Roadmap
 
 - **Live Captions & Meeting Transcripts** — ephemeral captions from a selected app's audio (Chrome, YouTube, meeting apps), and the saved, timestamped transcript as a separate action. The domain design already lives in `CONTEXT.md`; the recognition pipeline is ready for non-microphone audio.
-- **Text cleanup** — optional on-device polishing of dictated text (fillers, punctuation) once the raw-insertion core is benchmarked. Version 1 deliberately inserts exactly what you said.
+- **Text cleanup** — optional on-device polishing of dictated text (fillers, punctuation) once the raw-insertion core is benchmarked. Version 1 deliberately inserts exactly what you said. *(Built in this fork — see [What this fork adds](#what-this-fork-adds).)*
 - **Snippets** — saved text blocks inserted by a spoken trigger word: say your trigger mid-dictation and the whole block lands instead.
 
 ## License
