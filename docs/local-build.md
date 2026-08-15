@@ -12,7 +12,15 @@ out below rather than worked around.
 ./scripts/build-local-app.sh            # build dist/Talkify.app
 ./scripts/build-local-app.sh --test     # run the suite first, then build
 ./scripts/build-local-app.sh --tests-only
+./scripts/build-local-app.sh --benchmark-cleanup
 ```
+
+`--benchmark-cleanup` times Text Cleanup over drafts of four lengths, in both
+pacing modes. Cleanup runs between the recognizer finishing and the text
+landing, so those numbers are delay the person feels — they are what the
+Settings deadline default should be chosen from. It needs Apple Intelligence
+turned on; without it, cleanup correctly returns the draft untouched in
+microseconds and the run says so instead of printing a meaningless table.
 
 ## How it works
 

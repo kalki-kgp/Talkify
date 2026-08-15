@@ -35,10 +35,12 @@ CONFIGURATION="${TALKIFY_CONFIGURATION:-release}"
 SIGN_IDENTITY="${TALKIFY_SIGN_IDENTITY:--}"
 
 RUN_TESTS=0
+RUN_BENCHMARK=0
 for argument in "$@"; do
   case "$argument" in
     --test) RUN_TESTS=1 ;;
     --tests-only) RUN_TESTS=2 ;;
+    --benchmark-cleanup) RUN_BENCHMARK=1 ;;
     *) echo "unknown argument: $argument" >&2; exit 2 ;;
   esac
 done
@@ -100,7 +102,7 @@ fi
 
 log "Staging sources into ${STAGE#$ROOT/}"
 mkdir -p "$STAGE"
-rm -rf "$STAGE/Sources" "$STAGE/Repo"
+rm -rf "$STAGE/Sources" "$STAGE/Repo" "$STAGE/Bench"
 python3 "$ROOT/scripts/local-build/stage-sources.py" "$ROOT/Talkify" "$STAGE/Sources/Talkify" >&2
 
 # SwiftPM builds a test target into an .xctest bundle, which needs Xcode's
@@ -129,6 +131,16 @@ ln -sfn "$ROOT/appcast.xml" "$STAGE/Repo/appcast.xml"
 # reads the same way.
 write_info_plist "$STAGE/Repo/TestHost-Info.plist"
 
+# Text Cleanup adds a model pass between the recognizer finishing and the text
+# landing, which is exactly the window the insertion latency benchmark measures.
+# The benchmark target is the app's own sources plus a main that times
+# CleanupService.clean over drafts of several lengths.
+if (( RUN_BENCHMARK )); then
+  python3 "$ROOT/scripts/local-build/stage-sources.py" \
+    "$ROOT/Talkify" "$STAGE/Bench/App" --strip-main >&2
+  cp "$ROOT/scripts/local-build/CleanupBenchmark.swift" "$STAGE/Bench/main.swift"
+fi
+
 cat > "$STAGE/Repo/TalkifyTests/LocalTestRunner.swift" <<'RUNNER'
 import Testing
 
@@ -147,6 +159,16 @@ TESTING_FRAMEWORKS="$(dirname "$(find "$(xcode-select -p)" -maxdepth 6 -name Tes
 if [[ ! -d "$TESTING_FRAMEWORKS" ]]; then
   echo "Testing.framework not found under $(xcode-select -p)" >&2
   exit 1
+fi
+
+BENCHMARK_TARGET=""
+if (( RUN_BENCHMARK )); then
+  BENCHMARK_TARGET='    .executableTarget(
+      name: "CleanupBenchmark",
+      dependencies: [.product(name: "Sparkle", package: "Sparkle")],
+      path: "Bench",
+      swiftSettings: [.swiftLanguageMode(.v6)]
+    ),'
 fi
 
 cat > "$STAGE/Package.swift" <<PACKAGE
@@ -192,7 +214,8 @@ let package = Package(
           "-Xlinker", "$STAGE/Repo/TestHost-Info.plist"
         ])
       ]
-    )
+    ),
+$BENCHMARK_TARGET
   ]
 )
 PACKAGE
@@ -207,6 +230,13 @@ if [[ $RUN_TESTS -gt 0 ]]; then
 fi
 
 # ------------------------------------------------------------------ build ----
+
+if (( RUN_BENCHMARK )); then
+  log "Benchmarking Text Cleanup"
+  ( cd "$STAGE" && swift build -c release --product CleanupBenchmark )
+  "$STAGE/.build/release/CleanupBenchmark"
+  exit 0
+fi
 
 log "Building Talkify ($CONFIGURATION)"
 ( cd "$STAGE" && swift build -c "$CONFIGURATION" --product Talkify )
