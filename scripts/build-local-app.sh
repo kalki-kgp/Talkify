@@ -311,7 +311,15 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Frameworks"
 cp "$BINARY" "$CONTENTS/MacOS/Talkify"
 cp "$REFERENCE_RESOURCES/Assets.car" "$REFERENCE_RESOURCES/default.metallib" \
    "$REFERENCE_RESOURCES/AppIcon.icns" "$CONTENTS/Resources/"
-cp "$ROOT/Talkify/Resources/Sounds/"* "$CONTENTS/Resources/"
+# Pop is CC-BY-NC (see LICENSE-SOUNDS.txt). A release build already hides it
+# from the picker, but hiding it is not the same as not distributing it, so it
+# never enters the bundle. Debug builds keep it — nothing is redistributed.
+SOUND_EXCLUDE='LICENSE-SOUNDS.txt'
+[[ "$CONFIGURATION" == "release" ]] && SOUND_EXCLUDE="$SOUND_EXCLUDE|^Pop"
+find "$ROOT/Talkify/Resources/Sounds" -maxdepth 1 -type f -print0 \
+  | while IFS= read -r -d '' sound; do
+      [[ "$(basename "$sound")" =~ $SOUND_EXCLUDE ]] || cp "$sound" "$CONTENTS/Resources/"
+    done
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 
 SPARKLE_FRAMEWORK="$(find "$STAGE/.build/artifacts" -type d -name Sparkle.framework -path '*macos*' | head -1)"
