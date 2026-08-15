@@ -3,6 +3,10 @@ import Foundation
 /// One thing Talkify inserted and what the person turned it into.
 struct CorrectionPair: Equatable, Sendable {
   let bundleIdentifier: String?
+  /// Resolved when the pair is captured rather than when it is distilled: by
+  /// then the application may have quit, and "Slack" reads better than
+  /// `com.tinyspeck.slackmacgap` in a suggestion.
+  let applicationName: String?
   let inserted: String
   let corrected: String
 }

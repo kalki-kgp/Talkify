@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var usageTracker: UsageTracker?
   private var vocabulary: VocabularyList?
   private var styleRules: StyleRuleList?
+  private var suggestions: CleanupSuggestionQueue?
+  private var learningController: CleanupLearningController?
   private let settingsRuntimeState = SettingsRuntimeState()
   private let updaterService = SparkleUpdaterService()
 
@@ -31,18 +33,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let usageTracker = UsageTracker()
     let vocabulary = VocabularyList()
     let styleRules = StyleRuleList()
+    let suggestions = CleanupSuggestionQueue(styleRules: styleRules, vocabulary: vocabulary)
+    let cleanupService = CleanupService()
+    let corrections = CorrectionBuffer()
     let dictationController = DirectDictationController(
       settings: settings,
       hudController: hudController,
       usageTracker: usageTracker,
       vocabulary: vocabulary,
-      styleRules: styleRules
+      styleRules: styleRules,
+      cleanupService: cleanupService,
+      corrections: corrections
     )
+    let learningController = CleanupLearningController(
+      buffer: corrections,
+      cleanupService: cleanupService,
+      queue: suggestions
+    )
+    dictationController.onSessionEnded = { [weak learningController] in
+      learningController?.distillIfReady()
+    }
     self.hudController = hudController
     self.dictationController = dictationController
     self.usageTracker = usageTracker
     self.vocabulary = vocabulary
     self.styleRules = styleRules
+    self.suggestions = suggestions
+    self.learningController = learningController
 
     let readAloudController = ReadAloudController(
       settings: settings,
@@ -95,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // which re-biases the analyzers and the cleanup session already warm.
     Task { await vocabulary.load() }
     Task { await styleRules.load() }
+    Task { await suggestions.load() }
 
     // A background check is postponed while a session is running, so an update
     // window can never take focus mid-dictation and move the insertion target.
@@ -183,10 +201,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationWillTerminate(_ notification: Notification) {
     dictationController?.stop()
+    learningController?.cancel()
   }
 
   private func showSettings() {
-    guard let settings, let usageTracker, let vocabulary, let styleRules else { return }
+    guard let settings, let usageTracker, let vocabulary, let styleRules, let suggestions
+    else { return }
     if settingsWindowController == nil {
       settingsWindowController = SettingsWindowController(
         settings: settings,
@@ -195,6 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         usageTracker: usageTracker,
         vocabulary: vocabulary,
         styleRules: styleRules,
+        suggestions: suggestions,
         updater: updaterService
       )
     }

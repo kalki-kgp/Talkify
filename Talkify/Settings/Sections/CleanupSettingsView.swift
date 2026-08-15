@@ -9,6 +9,7 @@ import SwiftUI
 struct CleanupSettingsView: View {
   @Bindable var settings: AppSettings
   let styleRules: StyleRuleList
+  let suggestions: CleanupSuggestionQueue
 
   @Environment(\.colorSchemeContrast) private var contrast
   @State private var draft = ""
@@ -38,6 +39,11 @@ struct CleanupSettingsView: View {
       if settings.isCleanupEnabled {
         speedCard
         learningCard
+
+        if !suggestions.pending.isEmpty {
+          reviewCard
+        }
+
         addRuleCard
         rulesCard
       }
@@ -93,6 +99,43 @@ struct CleanupSettingsView: View {
           .toggleStyle(.switch)
           .disabled(!availability.isAvailable)
       }
+    }
+  }
+
+  private var reviewCard: some View {
+    SettingsCard(title: "Suggestions (\(suggestions.count))") {
+      noticeRow(
+        "Talkify noticed these in the edits you made to its output. Nothing is "
+          + "in effect until you keep it.",
+        isError: false
+      )
+
+      ForEach(suggestions.pending) { suggestion in
+        SettingsRow(title: suggestion.text, description: description(for: suggestion)) {
+          HStack(spacing: 8) {
+            Button("Keep") {
+              Task { await suggestions.accept(suggestion) }
+            }
+            .buttonStyle(SettingsButtonStyle())
+
+            Button("Discard") {
+              Task { await suggestions.decline(suggestion) }
+            }
+            .buttonStyle(SettingsButtonStyle())
+          }
+        }
+      }
+
+      if let errorMessage = suggestions.errorMessage {
+        noticeRow("Could not update your suggestions: \(errorMessage)", isError: true)
+      }
+    }
+  }
+
+  private func description(for suggestion: CleanupSuggestion) -> String {
+    switch suggestion.kind {
+    case .styleRule: "Style rule · \(suggestion.scope.title)"
+    case .vocabularyTerm: "Vocabulary term"
     }
   }
 
@@ -243,7 +286,15 @@ struct CleanupSettingsView: View {
     styleRules: StyleRuleList(store: StyleRuleStore(
       fileURL: FileManager.default.temporaryDirectory
         .appending(path: "TalkifyCleanupPreview-\(UUID().uuidString).json")
-    ))
+    )),
+    suggestions: CleanupSuggestionQueue(
+      store: CleanupSuggestionStore(
+        fileURL: FileManager.default.temporaryDirectory
+          .appending(path: "TalkifyCleanupPreview-suggestions-\(UUID().uuidString).json")
+      ),
+      styleRules: StyleRuleList(),
+      vocabulary: VocabularyList()
+    )
   )
   .frame(width: 620)
   .padding(30)

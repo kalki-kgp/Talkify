@@ -140,10 +140,10 @@ struct CorrectionDiffTests {
 struct CorrectionBufferTests {
   @Test func recordsOnlyRealChanges() async {
     let buffer = CorrectionBuffer()
-    await buffer.record(CorrectionPair(bundleIdentifier: nil, inserted: "a", corrected: "a"))
+    await buffer.record(CorrectionPair(bundleIdentifier: nil, applicationName: nil, inserted: "a", corrected: "a"))
     #expect(await buffer.count == 0)
 
-    await buffer.record(CorrectionPair(bundleIdentifier: nil, inserted: "a", corrected: "b"))
+    await buffer.record(CorrectionPair(bundleIdentifier: nil, applicationName: nil, inserted: "a", corrected: "b"))
     #expect(await buffer.count == 1)
   }
 
@@ -152,6 +152,7 @@ struct CorrectionBufferTests {
     for index in 0..<(CorrectionBuffer.capacity + 5) {
       await buffer.record(CorrectionPair(
         bundleIdentifier: nil,
+        applicationName: nil,
         inserted: "draft \(index)",
         corrected: "fixed \(index)"
       ))
@@ -166,8 +167,8 @@ struct CorrectionBufferTests {
   /// pair cannot be both consumed and left behind.
   @Test func drainingTakesEverythingAndLeavesNothing() async {
     let buffer = CorrectionBuffer()
-    await buffer.record(CorrectionPair(bundleIdentifier: nil, inserted: "a", corrected: "b"))
-    await buffer.record(CorrectionPair(bundleIdentifier: nil, inserted: "c", corrected: "d"))
+    await buffer.record(CorrectionPair(bundleIdentifier: nil, applicationName: nil, inserted: "a", corrected: "b"))
+    await buffer.record(CorrectionPair(bundleIdentifier: nil, applicationName: nil, inserted: "c", corrected: "d"))
 
     #expect(await buffer.drain().count == 2)
     #expect(await buffer.count == 0)

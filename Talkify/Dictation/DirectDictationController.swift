@@ -17,6 +17,10 @@ final class DirectDictationController {
   /// A language model downloading, as a locale identifier and progress (0…1),
   /// or nil progress once it finishes. Settings shows it on the language row.
   var onLanguageDownloadChange: ((String, Double?) -> Void)?
+  /// A session has ended and its correction watch has been started. The
+  /// composition root uses this to distil a full buffer while nothing is
+  /// listening.
+  var onSessionEnded: (() -> Void)?
 
   private static let noSpeechTimeout = Duration.seconds(15)
 
@@ -27,12 +31,12 @@ final class DirectDictationController {
   private let usageTracker: UsageTracker
   private let vocabulary: VocabularyList
   private let styleRules: StyleRuleList
-  private let cleanupService = CleanupService()
-  private let corrections = CorrectionBuffer()
+  private let cleanupService: CleanupService
   private lazy var correctionWatcher = CorrectionWatcher(
     insertionService: textInsertionService,
     buffer: corrections
   )
+  private let corrections: CorrectionBuffer
 
   private var keyEventMonitor: GlobalKeyEventMonitor?
   private var machine = DictationSessionMachine()
@@ -57,13 +61,17 @@ final class DirectDictationController {
     hudController: DictationHUDController,
     usageTracker: UsageTracker,
     vocabulary: VocabularyList,
-    styleRules: StyleRuleList
+    styleRules: StyleRuleList,
+    cleanupService: CleanupService,
+    corrections: CorrectionBuffer
   ) {
     self.settings = settings
     self.hudController = hudController
     self.usageTracker = usageTracker
     self.vocabulary = vocabulary
     self.styleRules = styleRules
+    self.cleanupService = cleanupService
+    self.corrections = corrections
     keyEventMonitor = GlobalKeyEventMonitor { [weak self] event in
       Task { @MainActor [weak self] in
         self?.handle(event)
@@ -486,6 +494,7 @@ final class DirectDictationController {
         }
         hudController.playPasteSound()
         send(.sessionEnded)
+        onSessionEnded?()
         let wordCount = UsageMetrics.wordCount(in: insertedText)
         await usageTracker.recordSession(
           wordCount: wordCount,

@@ -40,6 +40,9 @@ final class CorrectionWatcher {
     else { return }
 
     let bundleIdentifier = target.bundleIdentifier
+    let applicationName = bundleIdentifier.flatMap {
+      NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.localizedName
+    }
     watchTask = Task { [weak self] in
       var latest: String?
 
@@ -67,6 +70,7 @@ final class CorrectionWatcher {
       guard let latest, let self, !Task.isCancelled else { return }
       await buffer.record(CorrectionPair(
         bundleIdentifier: bundleIdentifier,
+        applicationName: applicationName,
         inserted: inserted,
         corrected: latest
       ))
