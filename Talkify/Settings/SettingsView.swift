@@ -9,6 +9,7 @@ struct SettingsView: View {
   let runtimeState: SettingsRuntimeState
   let usageTracker: UsageTracker
   let vocabulary: VocabularyList
+  let styleRules: StyleRuleList
   let updater: SparkleUpdaterService
   let onClose: () -> Void
 
@@ -39,6 +40,7 @@ struct SettingsView: View {
             sounds: sounds,
             usageTracker: usageTracker,
             vocabulary: vocabulary,
+            styleRules: styleRules,
             runtimeState: runtimeState,
             updater: updater
           )
@@ -225,6 +227,7 @@ private struct SettingsContent: View {
   let sounds: DictationHUDSounds
   let usageTracker: UsageTracker
   let vocabulary: VocabularyList
+  let styleRules: StyleRuleList
   let runtimeState: SettingsRuntimeState
   let updater: SparkleUpdaterService
 
@@ -253,7 +256,7 @@ private struct SettingsContent: View {
         case .vocabulary:
           VocabularySettingsView(vocabulary: vocabulary)
         case .cleanup:
-          CleanupSettingsView(settings: settings)
+          CleanupSettingsView(settings: settings, styleRules: styleRules)
         case .shortcuts:
           ShortcutsSettingsView(settings: settings)
         case .updates:
@@ -283,6 +286,10 @@ private struct SettingsContent: View {
     vocabulary: VocabularyList(store: VocabularyStore(
       fileURL: FileManager.default.temporaryDirectory
         .appending(path: "TalkifySettingsPreview-vocabulary.json")
+    )),
+    styleRules: StyleRuleList(store: StyleRuleStore(
+      fileURL: FileManager.default.temporaryDirectory
+        .appending(path: "TalkifySettingsPreview-style.json")
     )),
     // Never started, so the preview shows the pane's disabled state rather
     // than reaching for the network.

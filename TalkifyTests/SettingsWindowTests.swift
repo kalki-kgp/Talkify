@@ -15,6 +15,7 @@ struct SettingsWindowTests {
           .appending(path: "TalkifySettingsWindowTests-" + UUID().uuidString + ".json")
       )),
       vocabulary: VocabularyList(),
+      styleRules: StyleRuleList(),
       updater: SparkleUpdaterService()
     )
     let window = try #require(controller.window)

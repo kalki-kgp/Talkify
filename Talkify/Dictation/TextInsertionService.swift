@@ -6,7 +6,10 @@ final class TextInsertionService {
   struct Target {
     fileprivate let element: AXUIElement
     fileprivate let processIdentifier: pid_t
-    fileprivate let bundleIdentifier: String?
+    /// Readable outside insertion because Text Cleanup scopes its style rules
+    /// by application — the app about to receive the text is the app whose
+    /// rules apply.
+    let bundleIdentifier: String?
 
     let isSecure: Bool
     let displayID: CGDirectDisplayID?

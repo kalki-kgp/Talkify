@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var settingsWindowController: SettingsWindowController?
   private var usageTracker: UsageTracker?
   private var vocabulary: VocabularyList?
+  private var styleRules: StyleRuleList?
   private let settingsRuntimeState = SettingsRuntimeState()
   private let updaterService = SparkleUpdaterService()
 
@@ -29,16 +30,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let hudController = DictationHUDController(settings: settings)
     let usageTracker = UsageTracker()
     let vocabulary = VocabularyList()
+    let styleRules = StyleRuleList()
     let dictationController = DirectDictationController(
       settings: settings,
       hudController: hudController,
       usageTracker: usageTracker,
-      vocabulary: vocabulary
+      vocabulary: vocabulary,
+      styleRules: styleRules
     )
     self.hudController = hudController
     self.dictationController = dictationController
     self.usageTracker = usageTracker
     self.vocabulary = vocabulary
+    self.styleRules = styleRules
 
     let readAloudController = ReadAloudController(
       settings: settings,
@@ -84,11 +88,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     observeKeyBindings()
     observeLanguages()
     observeVocabulary()
+    observeStyleRules()
 
     // Loaded behind the prewarm rather than delaying it, and only once the
-    // loop above is watching: what the file holds arrives as a change, which
-    // re-biases the analyzers that are already warm.
+    // loops above are watching: what each file holds arrives as a change,
+    // which re-biases the analyzers and the cleanup session already warm.
     Task { await vocabulary.load() }
+    Task { await styleRules.load() }
 
     // A background check is postponed while a session is running, so an update
     // window can never take focus mid-dictation and move the insertion target.
@@ -151,6 +157,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
+  /// Editing a Cleanup style rule rebuilds the warm model session around the
+  /// new standing instructions, so the next dictation is polished the new way
+  /// without a relaunch.
+  private func observeStyleRules() {
+    guard let styleRules else { return }
+    withObservationTracking {
+      _ = styleRules.rules
+    } onChange: { [weak self] in
+      Task { @MainActor [weak self] in
+        self?.dictationController?.applyStyleRules()
+        self?.observeStyleRules()
+      }
+    }
+  }
+
   private func applyKeyBindings() {
     guard let settings else { return }
     dictationController?.applyKeyBindings()
@@ -165,7 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func showSettings() {
-    guard let settings, let usageTracker, let vocabulary else { return }
+    guard let settings, let usageTracker, let vocabulary, let styleRules else { return }
     if settingsWindowController == nil {
       settingsWindowController = SettingsWindowController(
         settings: settings,
@@ -173,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         runtimeState: settingsRuntimeState,
         usageTracker: usageTracker,
         vocabulary: vocabulary,
+        styleRules: styleRules,
         updater: updaterService
       )
     }

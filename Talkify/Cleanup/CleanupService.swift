@@ -76,18 +76,24 @@ actor CleanupService {
 
   /// Returns the text to insert: cleaned when everything went right, and the
   /// original draft in every other case.
-  func clean(_ text: String, locale: Locale, pacing: Pacing) async -> String {
+  func clean(
+    _ text: String,
+    locale: Locale,
+    applicationRules: [String] = [],
+    pacing: Pacing
+  ) async -> String {
     guard TextCleanup.shouldAttempt(text) else { return text }
     guard SystemLanguageModel.default.isAvailable else { return text }
     guard Self.supportsLanguage(of: locale) else { return text }
 
+    let prompt = TextCleanup.prompt(for: text, applicationRules: applicationRules)
     let limit = TextCleanup.responseTokenLimit(for: text)
     let candidate: String?
     switch pacing {
     case .waitForQuality:
-      candidate = await respond(to: text, tokenLimit: limit)
+      candidate = await respond(to: prompt, tokenLimit: limit)
     case let .deadline(duration):
-      candidate = await respond(to: text, tokenLimit: limit, within: duration)
+      candidate = await respond(to: prompt, tokenLimit: limit, within: duration)
     }
 
     guard let candidate, let accepted = TextCleanup.accept(candidate, for: text) else {

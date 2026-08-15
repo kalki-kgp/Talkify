@@ -22,6 +22,7 @@ final class SettingsWindowController: NSWindowController {
     runtimeState: SettingsRuntimeState,
     usageTracker: UsageTracker,
     vocabulary: VocabularyList,
+    styleRules: StyleRuleList,
     updater: SparkleUpdaterService
   ) {
     let window = TalkifySettingsWindow(
@@ -37,6 +38,7 @@ final class SettingsWindowController: NSWindowController {
         runtimeState: runtimeState,
         usageTracker: usageTracker,
         vocabulary: vocabulary,
+        styleRules: styleRules,
         updater: updater,
         onClose: { [weak window] in window?.close() }
       )

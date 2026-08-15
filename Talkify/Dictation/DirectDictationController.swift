@@ -26,6 +26,7 @@ final class DirectDictationController {
   private let textInsertionService = TextInsertionService()
   private let usageTracker: UsageTracker
   private let vocabulary: VocabularyList
+  private let styleRules: StyleRuleList
   private let cleanupService = CleanupService()
 
   private var keyEventMonitor: GlobalKeyEventMonitor?
@@ -50,12 +51,14 @@ final class DirectDictationController {
     settings: AppSettings,
     hudController: DictationHUDController,
     usageTracker: UsageTracker,
-    vocabulary: VocabularyList
+    vocabulary: VocabularyList,
+    styleRules: StyleRuleList
   ) {
     self.settings = settings
     self.hudController = hudController
     self.usageTracker = usageTracker
     self.vocabulary = vocabulary
+    self.styleRules = styleRules
     keyEventMonitor = GlobalKeyEventMonitor { [weak self] event in
       Task { @MainActor [weak self] in
         self?.handle(event)
@@ -170,6 +173,7 @@ final class DirectDictationController {
     // already biased.
     await speechService.setVocabulary(vocabulary.contextualStrings)
     await cleanupService.setProtectedTerms(vocabulary.contextualStrings)
+    await cleanupService.setStyleRules(styleRules.globalText)
     // Warmed alongside the analyzers and for the same reason: the model is
     // asked for the first time at the end of a session, not the start of one.
     await cleanupService.prepare()
@@ -483,9 +487,24 @@ final class DirectDictationController {
   private func cleanedText(for text: String) async -> String {
     guard settings.isCleanupEnabled, let locale = locale(for: activeSlot) else { return text }
     hudController.showCleaning()
-    return await cleanupService.clean(text, locale: locale, pacing: settings.cleanupPacing.pacing(
-      deadlineMilliseconds: settings.cleanupDeadlineMilliseconds
-    ))
+    return await cleanupService.clean(
+      text,
+      locale: locale,
+      applicationRules: styleRules.text(forBundleIdentifier: focusedTarget?.bundleIdentifier),
+      pacing: settings.cleanupPacing.pacing(
+        deadlineMilliseconds: settings.cleanupDeadlineMilliseconds
+      )
+    )
+  }
+
+  /// Re-applies the always-on style rules after the Cleanup section edits
+  /// them. Off the keypress path, like the Vocabulary: the standing
+  /// instructions change, so the warm session is rebuilt around them.
+  func applyStyleRules() {
+    Task { [weak self] in
+      guard let self else { return }
+      await cleanupService.setStyleRules(styleRules.globalText)
+    }
   }
 
   /// A failure path always ends with the message shown after the reset —

@@ -82,6 +82,24 @@ enum TextCleanup {
     return lines.joined(separator: "\n")
   }
 
+  /// The draft as the model receives it.
+  ///
+  /// Rules for the receiving application ride here rather than in the
+  /// instructions, because the target changes from one dictation to the next
+  /// and rebuilding the session per application would throw away the prewarm
+  /// that keeps cleanup inside its deadline. With no application rules the
+  /// prompt is the draft and nothing else.
+  static func prompt(for text: String, applicationRules: [String]) -> String {
+    guard !applicationRules.isEmpty else { return text }
+    return """
+      Also follow these preferences for the app this text is going into:
+      \(applicationRules.map { "- \($0)" }.joined(separator: "\n"))
+
+      Clean up this text:
+      \(text)
+      """
+  }
+
   /// A generous ceiling on the answer, so a model that starts rambling is cut
   /// off rather than allowed to burn the whole deadline.
   static func responseTokenLimit(for text: String) -> Int {
