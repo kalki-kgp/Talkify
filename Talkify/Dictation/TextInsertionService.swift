@@ -144,7 +144,7 @@ final class TextInsertionService {
       element=\(target.element != nil, privacy: .public)
       """
     )
-    if route != .paste, insertThroughAccessibility(text, target: target) {
+    if route != .paste, await insertThroughAccessibility(text, target: target) {
       remember(.accessibility, for: target.bundleIdentifier)
       return .setInPlace
     }
@@ -266,7 +266,16 @@ final class TextInsertionService {
     return CGRect(origin: position, size: size)
   }
 
-  private func insertThroughAccessibility(_ text: String, target: Target) -> Bool {
+  /// Writes into the field, and returns whether the text is actually in it.
+  ///
+  /// The distinction is the whole point. Chromium and Electron accept this
+  /// write, answer `.success`, and drop it on the floor — a YouTube search box
+  /// and a terminal inside Cursor both do. Taking that answer at face value
+  /// meant reporting the text as delivered while nothing appeared anywhere, and
+  /// never falling back to the paste that would have worked.
+  ///
+  /// So success now means observed, not reported.
+  private func insertThroughAccessibility(_ text: String, target: Target) async -> Bool {
     guard let element = target.element else { return false }
 
     var isSettable: DarwinBoolean = false
@@ -278,11 +287,32 @@ final class TextInsertionService {
 
     guard settableResult == .success, isSettable.boolValue else { return false }
 
-    return AXUIElementSetAttributeValue(
+    // Nothing is written into a field that cannot be read back, because the
+    // result could not be told apart from the silent drop above. Pasting is no
+    // more verifiable, but it does not quietly do nothing.
+    guard let before = readValue(of: target) else {
+      DictationLog.insertion.notice("ax: field cannot be read back, not risking a silent write")
+      return false
+    }
+
+    guard AXUIElementSetAttributeValue(
       element,
       kAXSelectedTextAttribute as CFString,
       text as CFString
-    ) == .success
+    ) == .success else {
+      DictationLog.insertion.notice("ax: write refused")
+      return false
+    }
+
+    if readValue(of: target) != before { return true }
+
+    // One unchanged read is not proof: a renderer can answer before it has
+    // applied the write. A second, after a beat, is — and this only costs
+    // anything on the path that is already failing.
+    try? await Task.sleep(for: .milliseconds(150))
+    let landed = readValue(of: target) != before
+    DictationLog.insertion.notice("ax: verified=\(landed, privacy: .public)")
+    return landed
   }
 
   /// Whether the paste is still going where it was meant to go.
