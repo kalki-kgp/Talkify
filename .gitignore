@@ -4,6 +4,10 @@ xcuserdata/
 *.xcuserstate
 *.profraw
 
+# scripts/build-local-app.sh: the SwiftPM staging tree and the bundle it builds.
+.localbuild/
+dist/
+
 # Sparkle: an exported private signing key must never be committed. The key
 # normally stays in the login Keychain; setup-sparkle-keys.sh --export writes
 # this file only when you are backing it up.
