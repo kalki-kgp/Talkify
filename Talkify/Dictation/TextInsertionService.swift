@@ -77,6 +77,23 @@ final class TextInsertionService {
     await pasteAndRestoreClipboard(text)
   }
 
+  /// The whole contents of a target field, or nil when it cannot be read.
+  ///
+  /// Strictly read-only, and nil is an ordinary answer: plenty of fields —
+  /// anything drawn rather than built from AX controls, and most of what a
+  /// paste route was needed for — expose no value at all. Text Cleanup uses
+  /// this to notice corrections, and treats nil as "no signal from this app"
+  /// rather than as a failure.
+  func readValue(of target: Target) -> String? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(
+      target.element,
+      kAXValueAttribute as CFString,
+      &value
+    ) == .success else { return nil }
+    return value as? String
+  }
+
   private func isSecureTextField(_ element: AXUIElement) -> Bool {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(

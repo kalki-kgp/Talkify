@@ -28,6 +28,7 @@ final class AppSettings {
     static let cleanupEnabled = "cleanupEnabled"
     static let cleanupPacing = "cleanupPacing"
     static let cleanupDeadline = "cleanupDeadlineMilliseconds"
+    static let cleanupLearning = "cleanupLearningEnabled"
   }
 
   @ObservationIgnored
@@ -126,6 +127,13 @@ final class AppSettings {
     didSet { defaults.set(cleanupDeadlineMilliseconds, forKey: Keys.cleanupDeadline) }
   }
 
+  /// Off by default, and separately from cleanup itself. Learning means
+  /// reading the field back a few seconds after inserting into it, which is a
+  /// thing to ask for rather than a thing to discover.
+  var isCleanupLearningEnabled: Bool {
+    didSet { defaults.set(isCleanupLearningEnabled, forKey: Keys.cleanupLearning) }
+  }
+
   /// Transient, never persisted: true while a Shortcuts key recorder is
   /// armed, so global trigger handling pauses and the rebind keystroke
   /// cannot start a session.
@@ -161,6 +169,7 @@ final class AppSettings {
     cleanupDeadlineMilliseconds = storedDeadline > 0
       ? CleanupDeadline.nearestChoice(to: storedDeadline)
       : CleanupDeadline.default
+    isCleanupLearningEnabled = defaults.bool(forKey: Keys.cleanupLearning)
   }
 
   private static func stored<Value: RawRepresentable<String>>(

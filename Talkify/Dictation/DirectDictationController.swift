@@ -28,6 +28,11 @@ final class DirectDictationController {
   private let vocabulary: VocabularyList
   private let styleRules: StyleRuleList
   private let cleanupService = CleanupService()
+  private let corrections = CorrectionBuffer()
+  private lazy var correctionWatcher = CorrectionWatcher(
+    insertionService: textInsertionService,
+    buffer: corrections
+  )
 
   private var keyEventMonitor: GlobalKeyEventMonitor?
   private var machine = DictationSessionMachine()
@@ -206,6 +211,8 @@ final class DirectDictationController {
     sessionStartTask?.cancel()
     keyEventMonitor?.stop()
     isPrepared = false
+
+    correctionWatcher.cancel()
 
     Task { [speechService, cleanupService] in
       await speechService.shutDown()
@@ -392,6 +399,10 @@ final class DirectDictationController {
       return
     }
 
+    // The previous session's field is behind them now, and a read against it
+    // would land on whatever they typed next.
+    correctionWatcher.cancel()
+
     let target = textInsertionService.captureFocusedTarget()
     if target?.isSecure == true {
       hudController.showMessage("Secure field", on: target?.displayID)
@@ -468,6 +479,11 @@ final class DirectDictationController {
         let insertedText = await cleanedText(for: text)
         hudController.hide()
         await textInsertionService.insert(insertedText, into: focusedTarget)
+        // Started before the target is released, since the watcher's baseline
+        // read needs the element that was just written to.
+        if settings.isCleanupLearningEnabled {
+          correctionWatcher.watch(inserted: insertedText, target: focusedTarget)
+        }
         hudController.playPasteSound()
         send(.sessionEnded)
         let wordCount = UsageMetrics.wordCount(in: insertedText)

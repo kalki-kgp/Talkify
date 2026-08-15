@@ -37,6 +37,7 @@ struct CleanupSettingsView: View {
 
       if settings.isCleanupEnabled {
         speedCard
+        learningCard
         addRuleCard
         rulesCard
       }
@@ -74,6 +75,23 @@ struct CleanupSettingsView: View {
           optionLabel: CleanupDeadline.title(forMilliseconds:),
           selection: $settings.cleanupDeadlineMilliseconds
         )
+      }
+    }
+  }
+
+  private var learningCard: some View {
+    SettingsCard(title: "Learning") {
+      SettingsRow(
+        title: "Learn from your corrections",
+        description: "After inserting, Talkify reads the field again a few "
+          + "seconds later to see what you changed, and turns repeated fixes "
+          + "into style rules you approve. Corrections are held in memory only "
+          + "and are gone when you quit."
+      ) {
+        Toggle("", isOn: $settings.isCleanupLearningEnabled)
+          .labelsHidden()
+          .toggleStyle(.switch)
+          .disabled(!availability.isAvailable)
       }
     }
   }
