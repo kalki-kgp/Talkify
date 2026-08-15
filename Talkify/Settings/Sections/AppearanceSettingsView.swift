@@ -58,8 +58,6 @@ struct AppearanceSettingsView: View {
         }
       }
 
-      notchCard
-
       SettingsCard(title: "Motion and layout") {
         SettingsPickerRow(
           title: "Reveal style",
@@ -78,80 +76,5 @@ struct AppearanceSettingsView: View {
         )
       }
     }
-  }
-
-  /// Only the simulated notch is adjustable, and the card says so on a Mac
-  /// where it does not apply rather than offering a control that does nothing.
-  private var notchCard: some View {
-    SettingsCard(title: "Notch") {
-      if hasRealNotch {
-        SettingsRow(
-          title: "This display has its own notch",
-          description: "The HUD hugs the housing your Mac reports and flares "
-            + "into the bezel around it. Resizing it would leave the curve "
-            + "hanging in open screen, so the size is fixed here. Connect a "
-            + "display without a notch to adjust the simulated one."
-        ) {
-          EmptyView()
-        }
-      } else {
-        sizeRow(
-          title: "Width",
-          value: $settings.notchWidth,
-          range: HUDNotchSize.widthRange
-        )
-        sizeRow(
-          title: "Height",
-          value: $settings.notchHeight,
-          range: HUDNotchSize.heightRange
-        )
-
-        SettingsRow(
-          title: "Reset",
-          description: "Back to \(Int(HUDNotchSize.defaultWidth)) × "
-            + "\(Int(HUDNotchSize.defaultHeight)), the footprint a 14-inch "
-            + "MacBook Pro measures."
-        ) {
-          Button("Reset") {
-            settings.notchWidth = HUDNotchSize.defaultWidth
-            settings.notchHeight = HUDNotchSize.defaultHeight
-          }
-          .buttonStyle(SettingsButtonStyle())
-          .disabled(
-            HUDNotchSize.isDefault(
-              width: settings.notchWidth,
-              height: settings.notchHeight
-            )
-          )
-        }
-      }
-    }
-  }
-
-  private func sizeRow(
-    title: String,
-    value: Binding<Double>,
-    range: ClosedRange<Double>
-  ) -> some View {
-    SettingsRow(
-      title: title,
-      description: "\(Int(value.wrappedValue)) points"
-    ) {
-      Slider(value: value, in: range)
-        .frame(width: 190)
-    }
-  }
-
-  private var hasRealNotch: Bool {
-    guard let screen = NSScreen.main, let id = screen.cgDirectDisplayID else { return false }
-    return HUDNotchGeometry.hasMeasuredNotch(
-      for: HUDScreenSnapshot(
-        id: id,
-        frame: screen.frame,
-        safeAreaTop: screen.safeAreaInsets.top,
-        auxiliaryTopLeftArea: screen.auxiliaryTopLeftArea,
-        auxiliaryTopRightArea: screen.auxiliaryTopRightArea
-      )
-    )
   }
 }
