@@ -21,6 +21,10 @@ final class CorrectionWatcher {
   private let insertionService: TextInsertionService
   private let buffer: CorrectionBuffer
 
+  /// Fired after a pair lands, so Settings can say how many are held without
+  /// polling an actor it has no reason to know about.
+  var onCapture: (() -> Void)?
+
   private var watchTask: Task<Void, Never>?
 
   init(insertionService: TextInsertionService, buffer: CorrectionBuffer) {
@@ -74,6 +78,7 @@ final class CorrectionWatcher {
         inserted: inserted,
         corrected: latest
       ))
+      onCapture?()
     }
   }
 

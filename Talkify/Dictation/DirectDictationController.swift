@@ -21,6 +21,9 @@ final class DirectDictationController {
   /// composition root uses this to distil a full buffer while nothing is
   /// listening.
   var onSessionEnded: (() -> Void)?
+  /// A correction was captured from the field Talkify wrote into. Settings
+  /// shows how many are held, so the count has to move as they arrive.
+  var onCorrectionCaptured: (() -> Void)?
 
   private static let noSpeechTimeout = Duration.seconds(15)
 
@@ -32,10 +35,14 @@ final class DirectDictationController {
   private let vocabulary: VocabularyList
   private let styleRules: StyleRuleList
   private let cleanupService: CleanupService
-  private lazy var correctionWatcher = CorrectionWatcher(
-    insertionService: textInsertionService,
-    buffer: corrections
-  )
+  private lazy var correctionWatcher: CorrectionWatcher = {
+    let watcher = CorrectionWatcher(
+      insertionService: textInsertionService,
+      buffer: corrections
+    )
+    watcher.onCapture = { [weak self] in self?.onCorrectionCaptured?() }
+    return watcher
+  }()
   private let corrections: CorrectionBuffer
 
   private var keyEventMonitor: GlobalKeyEventMonitor?

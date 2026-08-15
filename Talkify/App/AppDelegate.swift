@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let styleRules = StyleRuleList()
     let suggestions = CleanupSuggestionQueue(styleRules: styleRules, vocabulary: vocabulary)
     let cleanupService = CleanupService()
-    let corrections = CorrectionBuffer()
+    let corrections = CorrectionBuffer(store: CorrectionStore())
     let dictationController = DirectDictationController(
       settings: settings,
       hudController: hudController,
@@ -54,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let calibrator = CleanupCalibrator(service: cleanupService)
     dictationController.onSessionEnded = { [weak learningController] in
       learningController?.distillIfReady()
+    }
+    dictationController.onCorrectionCaptured = { [weak learningController] in
+      learningController?.refresh()
     }
     self.hudController = hudController
     self.dictationController = dictationController
@@ -116,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     Task { await vocabulary.load() }
     Task { await styleRules.load() }
     Task { await suggestions.load() }
+    learningController.load()
 
     // A background check is postponed while a session is running, so an update
     // window can never take focus mid-dictation and move the insertion target.
@@ -210,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func showSettings() {
     guard let settings, let usageTracker, let vocabulary, let styleRules, let suggestions,
-      let calibrator
+      let calibrator, let learningController
     else { return }
     if settingsWindowController == nil {
       settingsWindowController = SettingsWindowController(
@@ -222,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         styleRules: styleRules,
         suggestions: suggestions,
         calibrator: calibrator,
+        learning: learningController,
         updater: updaterService
       )
     }

@@ -17,6 +17,7 @@ struct CleanupSettingsView: View {
   let styleRules: StyleRuleList
   let suggestions: CleanupSuggestionQueue
   let calibrator: CleanupCalibrator
+  let learning: CleanupLearningController
 
   @Environment(\.colorSchemeContrast) private var contrast
   @State private var draft = ""
@@ -223,16 +224,39 @@ struct CleanupSettingsView: View {
       SettingsRow(
         title: "Learn from your corrections",
         description: "After inserting, Talkify reads the field again a few "
-          + "seconds later to see what you changed, and turns repeated fixes "
-          + "into style rules you approve. Corrections are held in memory only "
-          + "and are gone when you quit."
+          + "seconds later to see what you changed. Once \(learning.threshold) "
+          + "corrections have piled up it reads them together and proposes "
+          + "style rules and vocabulary terms for you to approve."
       ) {
         Toggle("", isOn: $settings.isCleanupLearningEnabled)
           .labelsHidden()
           .toggleStyle(.switch)
           .disabled(!availability.isAvailable)
       }
+
+      if settings.isCleanupLearningEnabled {
+        SettingsRow(
+          title: "Captured corrections",
+          description: capturedDescription
+        ) {
+          Button("Forget These") {
+            learning.forgetCaptured()
+          }
+          .buttonStyle(SettingsButtonStyle())
+          .disabled(learning.capturedCount == 0)
+        }
+      }
     }
+  }
+
+  private var capturedDescription: String {
+    let held = learning.capturedCount == 1
+      ? "1 correction is waiting"
+      : "\(learning.capturedCount) corrections are waiting"
+    return "\(held) of the \(learning.threshold) it takes to draw a conclusion. "
+      + "These are kept on disk so they survive quitting, they hold the text "
+      + "that was corrected, and they are erased the moment they are turned "
+      + "into suggestions."
   }
 
   private var reviewCard: some View {
