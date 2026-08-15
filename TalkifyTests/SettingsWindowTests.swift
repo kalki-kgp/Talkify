@@ -20,6 +20,7 @@ struct SettingsWindowTests {
         styleRules: StyleRuleList(),
         vocabulary: VocabularyList()
       ),
+      calibrator: CleanupCalibrator(service: CleanupService()),
       updater: SparkleUpdaterService()
     )
     let window = try #require(controller.window)

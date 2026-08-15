@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var styleRules: StyleRuleList?
   private var suggestions: CleanupSuggestionQueue?
   private var learningController: CleanupLearningController?
+  private var calibrator: CleanupCalibrator?
   private let settingsRuntimeState = SettingsRuntimeState()
   private let updaterService = SparkleUpdaterService()
 
@@ -50,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       cleanupService: cleanupService,
       queue: suggestions
     )
+    let calibrator = CleanupCalibrator(service: cleanupService)
     dictationController.onSessionEnded = { [weak learningController] in
       learningController?.distillIfReady()
     }
@@ -60,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     self.styleRules = styleRules
     self.suggestions = suggestions
     self.learningController = learningController
+    self.calibrator = calibrator
 
     let readAloudController = ReadAloudController(
       settings: settings,
@@ -202,10 +205,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationWillTerminate(_ notification: Notification) {
     dictationController?.stop()
     learningController?.cancel()
+    calibrator?.cancel()
   }
 
   private func showSettings() {
-    guard let settings, let usageTracker, let vocabulary, let styleRules, let suggestions
+    guard let settings, let usageTracker, let vocabulary, let styleRules, let suggestions,
+      let calibrator
     else { return }
     if settingsWindowController == nil {
       settingsWindowController = SettingsWindowController(
@@ -216,6 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         vocabulary: vocabulary,
         styleRules: styleRules,
         suggestions: suggestions,
+        calibrator: calibrator,
         updater: updaterService
       )
     }

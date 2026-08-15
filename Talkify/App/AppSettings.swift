@@ -123,8 +123,18 @@ final class AppSettings {
     didSet { defaults.set(cleanupPacing.rawValue, forKey: Keys.cleanupPacing) }
   }
 
+  /// Any value inside `CleanupDeadline.range`, not only the presets: the Speed
+  /// card takes a typed number, and calibrating this Mac produces a measured
+  /// one that will rarely be round.
   var cleanupDeadlineMilliseconds: Int {
-    didSet { defaults.set(cleanupDeadlineMilliseconds, forKey: Keys.cleanupDeadline) }
+    didSet {
+      let clamped = CleanupDeadline.clamped(cleanupDeadlineMilliseconds)
+      guard clamped == cleanupDeadlineMilliseconds else {
+        cleanupDeadlineMilliseconds = clamped
+        return
+      }
+      defaults.set(cleanupDeadlineMilliseconds, forKey: Keys.cleanupDeadline)
+    }
   }
 
   /// Off by default, and separately from cleanup itself. Learning means
@@ -163,11 +173,11 @@ final class AppSettings {
     ) ?? .rightOptionTrigger
     isCleanupEnabled = defaults.bool(forKey: Keys.cleanupEnabled)
     cleanupPacing = Self.stored(in: defaults, key: Keys.cleanupPacing) ?? .deadline
-    // An absent key reads as 0, and a value from another build may not be one
-    // of the offered steps; both resolve onto the picker's own choices.
+    // An absent key reads as 0. A stored value is kept as it is — it may have
+    // been typed or measured rather than picked — and only clamped into range.
     let storedDeadline = defaults.integer(forKey: Keys.cleanupDeadline)
     cleanupDeadlineMilliseconds = storedDeadline > 0
-      ? CleanupDeadline.nearestChoice(to: storedDeadline)
+      ? CleanupDeadline.clamped(storedDeadline)
       : CleanupDeadline.default
     isCleanupLearningEnabled = defaults.bool(forKey: Keys.cleanupLearning)
   }

@@ -31,21 +31,41 @@ enum CleanupPacing: String, CaseIterable, Sendable {
 /// The time limits offered for `.deadline`, in milliseconds. Whole steps
 /// rather than a slider: the difference between 900 and 1000 ms is not a
 /// choice anyone can make, and the picker matches every other Settings row.
+///
+/// The range reaches as far as it does because the model is slow. Measured on
+/// an M1 Air with `--benchmark-cleanup`: 10 seconds for a short draft, 13.5 for
+/// a long one. Anything under that on this hardware means cleanup never
+/// finishes and the feature quietly does nothing — which is worse than an
+/// honest wait, because it looks like it is working.
 enum CleanupDeadline {
-  static let choices = [500, 1000, 1500, 2000, 3000]
-  static let `default` = 1500
+  static let choices = [1000, 2000, 3000, 5000, 8000, 12000, 20000]
+  static let `default` = 8000
+  /// Any value in here is allowed, not just the presets — the Speed card takes
+  /// a typed number and `CleanupCalibration` produces measured ones. The bounds
+  /// only keep a stored value sane: below the floor nothing ever finishes, and
+  /// above the ceiling this is no longer dictation.
+  static let range = 500...60000
 
   static func title(forMilliseconds milliseconds: Int) -> String {
     let seconds = Double(milliseconds) / 1000
+    guard seconds != 1 else { return "1 second" }
     return seconds == seconds.rounded()
       ? "\(Int(seconds)) seconds"
       : String(format: "%.1f seconds", seconds)
   }
 
-  /// Clamps a stored value onto the offered choices, so a number left behind
-  /// by another build cannot render a picker with no selection.
+  /// The nearest preset. Used to decide which preset a value corresponds to,
+  /// not to force it onto one — a custom or measured value stays as typed.
   static func nearestChoice(to milliseconds: Int) -> Int {
     choices.min { abs($0 - milliseconds) < abs($1 - milliseconds) } ?? `default`
+  }
+
+  static func clamped(_ milliseconds: Int) -> Int {
+    min(max(milliseconds, range.lowerBound), range.upperBound)
+  }
+
+  static func isPreset(_ milliseconds: Int) -> Bool {
+    choices.contains(milliseconds)
   }
 }
 

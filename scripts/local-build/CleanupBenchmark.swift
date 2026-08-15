@@ -66,7 +66,8 @@ func run() async {
 
   let pacings: [(String, CleanupService.Pacing)] = [
     ("wait for quality", .waitForQuality),
-    ("deadline 1.5s", .deadline(.milliseconds(1500))),
+    ("deadline \(CleanupDeadline.default) ms (the default)",
+      .deadline(.milliseconds(CleanupDeadline.default))),
   ]
 
   for (label, pacing) in pacings {
@@ -81,21 +82,33 @@ func run() async {
       try? await Task.sleep(for: .milliseconds(500))
 
       var timings: [Duration] = []
-      var changed = false
+      var lastCandidate: String?
+      var lastAccepted: String?
       for _ in 0..<runsPerDraft {
         let start = ContinuousClock.now
-        let result = await service.clean(
+        let result = await service.inspect(
           draft.text,
           locale: Locale(identifier: "en_US"),
           pacing: pacing
         )
         timings.append(start.duration(to: .now))
-        changed = result != draft.text
+        lastCandidate = result.candidate
+        lastAccepted = result.accepted
       }
 
-      let verdict = changed ? "cleaned" : "fell back to the raw draft"
+      let verdict: String
+      switch (lastCandidate, lastAccepted) {
+      case (nil, _): verdict = "no answer in time"
+      case (_, nil): verdict = "answered, REJECTED by validation"
+      default: verdict = "cleaned"
+      }
       print("  \(draft.name.padding(toLength: 20, withPad: " ", startingAt: 0))"
         + "\(milliseconds(median(timings)))   \(verdict)")
+      // Printed for the rejections above all: the only way to tell an
+      // over-strict rule from a badly behaved model is to look at the answer.
+      if let lastCandidate, lastAccepted == nil {
+        print("        model said: \(lastCandidate)")
+      }
     }
   }
 

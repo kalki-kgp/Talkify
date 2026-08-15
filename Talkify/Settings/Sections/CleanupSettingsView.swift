@@ -7,13 +7,22 @@ import SwiftUI
 /// ordinary condition here — Apple Intelligence is a system-level switch, and
 /// a toggle that silently does nothing is worse than one that says why.
 struct CleanupSettingsView: View {
+  /// A preset from the menu, or a number the person typed or measured.
+  enum DeadlineChoice: Hashable {
+    case preset(Int)
+    case custom
+  }
+
   @Bindable var settings: AppSettings
   let styleRules: StyleRuleList
   let suggestions: CleanupSuggestionQueue
+  let calibrator: CleanupCalibrator
 
   @Environment(\.colorSchemeContrast) private var contrast
   @State private var draft = ""
   @State private var draftScope = StyleRuleScope.everywhere
+  @State private var isCustomDeadline = false
+  @State private var customDeadlineText = ""
 
   private let availability = CleanupService.availability
 
@@ -66,23 +75,147 @@ struct CleanupSettingsView: View {
       SettingsPickerRow(
         title: "If cleanup is slow",
         description: "Cleanup runs after you release the key and before the "
-          + "text lands, so it adds a short wait to every dictation.",
+          + "text lands, so it adds a wait to every dictation — several seconds "
+          + "on an older Mac. Set the limit below to less than that and Talkify "
+          + "will simply always insert the raw text.",
         options: CleanupPacing.allCases,
         optionLabel: \.title,
         selection: $settings.cleanupPacing,
         controlWidth: 210
       )
+      .help("On an Apple Silicon Mac the model needs several seconds.")
 
       if settings.cleanupPacing == .deadline {
-        SettingsPickerRow(
+        SettingsRow(
           title: "Give up after",
-          description: "Past this, Talkify inserts exactly what you said.",
-          options: CleanupDeadline.choices,
-          optionLabel: CleanupDeadline.title(forMilliseconds:),
-          selection: $settings.cleanupDeadlineMilliseconds
-        )
+          description: "Past this, Talkify inserts exactly what you said."
+        ) {
+          Picker("Give up after", selection: deadlineChoice) {
+            ForEach(CleanupDeadline.choices, id: \.self) { milliseconds in
+              Text(CleanupDeadline.title(forMilliseconds: milliseconds))
+                .tag(DeadlineChoice.preset(milliseconds))
+            }
+            Divider()
+            Text("Custom…").tag(DeadlineChoice.custom)
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .frame(width: 150, alignment: .trailing)
+        }
+
+        if isCustomDeadline {
+          customDeadlineRow
+        }
+
+        calibrationRow
       }
     }
+  }
+
+  private var customDeadlineRow: some View {
+    SettingsRow(
+      title: "Custom limit",
+      description: "In seconds, between \(CleanupDeadline.range.lowerBound / 1000) and "
+        + "\(CleanupDeadline.range.upperBound / 1000)."
+    ) {
+      HStack(spacing: 8) {
+        TextField("8", text: $customDeadlineText)
+          .textFieldStyle(.plain)
+          .font(.system(size: 13))
+          .multilineTextAlignment(.trailing)
+          .foregroundStyle(.white)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 7)
+          .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+          .overlay {
+            RoundedRectangle(cornerRadius: 8)
+              .stroke(.white.opacity(contrast == .increased ? 0.26 : 0.12), lineWidth: 1)
+          }
+          .frame(width: 70)
+          .onSubmit(commitCustomDeadline)
+
+        Button("Set", action: commitCustomDeadline)
+          .buttonStyle(SettingsButtonStyle())
+      }
+    }
+  }
+
+  private var calibrationRow: some View {
+    SettingsRow(title: "Test this Mac", description: calibrationDescription) {
+      Button(calibrator.isRunning ? "Testing…" : "Test") {
+        calibrator.calibrate { milliseconds in
+          settings.cleanupDeadlineMilliseconds = milliseconds
+          customDeadlineText = String(format: "%.1f", Double(milliseconds) / 1000)
+          isCustomDeadline = !CleanupDeadline.isPreset(milliseconds)
+        }
+      }
+      .buttonStyle(SettingsButtonStyle())
+      .disabled(calibrator.isRunning || !availability.isAvailable)
+    }
+  }
+
+  private var calibrationDescription: String {
+    switch calibrator.state {
+    case .idle:
+      "Cleans three sample drafts and sets the limit from what they took. "
+        + "Takes about half a minute, and how long it needs is entirely down "
+        + "to how fast this Mac is."
+    case let .running(completed, total):
+      "Cleaning sample \(completed + 1) of \(total)…"
+    case let .finished(measured, recommended):
+      "The slowest sample took \(seconds(measured)). Limit set to "
+        + "\(seconds(recommended)), which leaves room for a slow run."
+    case .unavailable:
+      "Apple Intelligence is not available, so there is nothing to measure."
+    case .failed:
+      "The test could not finish. Your limit is unchanged."
+    }
+  }
+
+  private func seconds(_ milliseconds: Int) -> String {
+    String(format: "%.1f seconds", Double(milliseconds) / 1000)
+  }
+
+  private var deadlineChoice: Binding<DeadlineChoice> {
+    Binding(
+      get: {
+        isCustomDeadline || !CleanupDeadline.isPreset(settings.cleanupDeadlineMilliseconds)
+          ? .custom
+          : .preset(settings.cleanupDeadlineMilliseconds)
+      },
+      set: { choice in
+        switch choice {
+        case let .preset(milliseconds):
+          isCustomDeadline = false
+          settings.cleanupDeadlineMilliseconds = milliseconds
+        case .custom:
+          isCustomDeadline = true
+          customDeadlineText = String(
+            format: "%.1f",
+            Double(settings.cleanupDeadlineMilliseconds) / 1000
+          )
+        }
+      }
+    )
+  }
+
+  private func commitCustomDeadline() {
+    guard let typed = Double(customDeadlineText.replacingOccurrences(of: ",", with: ".")),
+      typed > 0
+    else {
+      customDeadlineText = String(
+        format: "%.1f",
+        Double(settings.cleanupDeadlineMilliseconds) / 1000
+      )
+      return
+    }
+    settings.cleanupDeadlineMilliseconds = CleanupDeadline.clamped(Int(typed * 1000))
+    // Echoed back from the stored value, so a number outside the range shows
+    // what was actually kept rather than what was typed.
+    customDeadlineText = String(
+      format: "%.1f",
+      Double(settings.cleanupDeadlineMilliseconds) / 1000
+    )
   }
 
   private var learningCard: some View {
@@ -294,7 +427,8 @@ struct CleanupSettingsView: View {
       ),
       styleRules: StyleRuleList(),
       vocabulary: VocabularyList()
-    )
+    ),
+    calibrator: CleanupCalibrator(service: CleanupService())
   )
   .frame(width: 620)
   .padding(30)

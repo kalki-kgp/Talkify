@@ -102,6 +102,35 @@ actor CleanupService {
     return accepted
   }
 
+  /// What the model actually answered, alongside what validation made of it.
+  ///
+  /// `clean` deliberately reports only the text to insert, because a caller
+  /// with two answers to choose between would eventually choose wrong. The
+  /// benchmark needs both: a feature whose validation rejects everything does
+  /// nothing, and that is indistinguishable from the outside.
+  func inspect(
+    _ text: String,
+    locale: Locale,
+    applicationRules: [String] = [],
+    pacing: Pacing
+  ) async -> (candidate: String?, accepted: String?) {
+    guard TextCleanup.shouldAttempt(text),
+      SystemLanguageModel.default.isAvailable,
+      Self.supportsLanguage(of: locale)
+    else { return (nil, nil) }
+
+    let prompt = TextCleanup.prompt(for: text, applicationRules: applicationRules)
+    let limit = TextCleanup.responseTokenLimit(for: text)
+    let candidate: String?
+    switch pacing {
+    case .waitForQuality:
+      candidate = await respond(to: prompt, tokenLimit: limit)
+    case let .deadline(duration):
+      candidate = await respond(to: prompt, tokenLimit: limit, within: duration)
+    }
+    return (candidate, candidate.flatMap { TextCleanup.accept($0, for: text) })
+  }
+
   /// Turns a batch of correction pairs into things worth proposing: short
   /// style rules, and Vocabulary terms for words the recognizer misspelled.
   ///
@@ -211,24 +240,36 @@ actor CleanupService {
     return SystemLanguageModel.default.supportedLanguages.contains { $0.languageCode == code }
   }
 
+  /// Whichever finishes first decides: the model's answer, or the deadline's
+  /// nil. A model that fails early lands here too, which is the same outcome by
+  /// a different route.
+  ///
+  /// Deliberately unstructured. `withTaskGroup` cannot express this, because it
+  /// waits for every child before it returns — so the losing task still holds up
+  /// the answer and the deadline is not a deadline at all. Measured: a 1.5s
+  /// limit took 3.3s. The model task is cut loose instead. It is cancelled, and
+  /// whenever it does stop it renews the session on its way out.
   private func respond(
     to text: String,
     tokenLimit: Int,
     within duration: Duration
   ) async -> String? {
-    await withTaskGroup(of: String?.self) { group in
-      group.addTask { await self.respond(to: text, tokenLimit: tokenLimit) }
-      group.addTask {
-        try? await Task.sleep(for: duration)
-        return nil
-      }
-      // Whichever finishes first decides: the model's answer, or the deadline's
-      // nil. A model that fails early also lands here, which is the same
-      // outcome by a different route.
-      let first = await group.next() ?? nil
-      group.cancelAll()
-      return first
+    let (stream, continuation) = AsyncStream<String?>.makeStream(
+      bufferingPolicy: .bufferingNewest(1)
+    )
+
+    let work = Task { continuation.yield(await self.respond(to: text, tokenLimit: tokenLimit)) }
+    let deadline = Task {
+      try? await Task.sleep(for: duration)
+      continuation.yield(nil)
     }
+    defer {
+      deadline.cancel()
+      work.cancel()
+    }
+
+    var results = stream.makeAsyncIterator()
+    return await results.next() ?? nil
   }
 
   private func respond(to text: String, tokenLimit: Int) async -> String? {

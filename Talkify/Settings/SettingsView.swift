@@ -11,6 +11,7 @@ struct SettingsView: View {
   let vocabulary: VocabularyList
   let styleRules: StyleRuleList
   let suggestions: CleanupSuggestionQueue
+  let calibrator: CleanupCalibrator
   let updater: SparkleUpdaterService
   let onClose: () -> Void
 
@@ -43,6 +44,7 @@ struct SettingsView: View {
             vocabulary: vocabulary,
             styleRules: styleRules,
             suggestions: suggestions,
+            calibrator: calibrator,
             runtimeState: runtimeState,
             updater: updater
           )
@@ -231,6 +233,7 @@ private struct SettingsContent: View {
   let vocabulary: VocabularyList
   let styleRules: StyleRuleList
   let suggestions: CleanupSuggestionQueue
+  let calibrator: CleanupCalibrator
   let runtimeState: SettingsRuntimeState
   let updater: SparkleUpdaterService
 
@@ -262,7 +265,8 @@ private struct SettingsContent: View {
           CleanupSettingsView(
             settings: settings,
             styleRules: styleRules,
-            suggestions: suggestions
+            suggestions: suggestions,
+            calibrator: calibrator
           )
         case .shortcuts:
           ShortcutsSettingsView(settings: settings)
@@ -306,6 +310,7 @@ private struct SettingsContent: View {
       styleRules: StyleRuleList(),
       vocabulary: VocabularyList()
     ),
+    calibrator: CleanupCalibrator(service: CleanupService()),
     // Never started, so the preview shows the pane's disabled state rather
     // than reaching for the network.
     updater: SparkleUpdaterService(),
