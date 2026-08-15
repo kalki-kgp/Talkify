@@ -13,6 +13,23 @@ struct SettingsPreviewCard: View {
   /// Runs the one-shot demos below; a new demo cancels the previous one.
   @State private var demoTask: Task<Void, Never>?
 
+  /// This Mac's own display, so the preview shows what will actually appear.
+  /// It used to always use the notched fixture, which meant a Mac without a
+  /// notch was previewing someone else's hardware — and the notch-size control
+  /// would have looked broken, since only a simulated housing responds to it.
+  private var previewScreen: HUDScreenSnapshot {
+    guard let screen = NSScreen.main, let id = screen.cgDirectDisplayID else {
+      return HUDPreviewScreen.notched
+    }
+    return HUDScreenSnapshot(
+      id: id,
+      frame: screen.frame,
+      safeAreaTop: screen.safeAreaInsets.top,
+      auxiliaryTopLeftArea: screen.auxiliaryTopLeftArea,
+      auxiliaryTopRightArea: screen.auxiliaryTopRightArea
+    )
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
@@ -40,7 +57,7 @@ struct SettingsPreviewCard: View {
         simulatedMenuBar
 
         DictationHUDShellView(
-          screen: HUDPreviewScreen.notched,
+          screen: previewScreen,
           settings: settings.sessionSettings,
           content: content
         )

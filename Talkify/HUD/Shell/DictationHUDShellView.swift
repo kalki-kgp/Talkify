@@ -20,7 +20,8 @@ struct DictationHUDShellView: View {
     HUDNotchGeometry.contentSize(
       for: screen,
       visualBandHeight: visualBandHeight,
-      includesTextBand: showsTextBand
+      includesTextBand: showsTextBand,
+      simulated: settings.notchSize
     )
   }
 
@@ -74,7 +75,7 @@ struct DictationHUDShellView: View {
       // Strip level with the housing: kept empty so text never collides
       // with the camera.
       Color.clear
-        .frame(height: HUDNotchGeometry.closedSize(for: screen).height)
+        .frame(height: HUDNotchGeometry.closedSize(for: screen, simulated: settings.notchSize).height)
       if visualBandHeight > 0 {
         Group {
           if reduceMotion {
@@ -211,7 +212,7 @@ struct DictationHUDShellView: View {
         .background(Capsule(style: .continuous).fill(.white.opacity(0.13)))
         .padding(.leading, 12)
         // Clears the housing, so the tag never sits beside the camera.
-        .padding(.top, HUDNotchGeometry.closedSize(for: screen).height + 5)
+        .padding(.top, HUDNotchGeometry.closedSize(for: screen, simulated: settings.notchSize).height + 5)
         .allowsHitTesting(false)
     }
   }
@@ -267,7 +268,7 @@ struct DictationHUDShellView: View {
     // Plain values for the @Sendable keyframeAnimator content closure.
     let rippleOrigin = CGPoint(
       x: size.width / 2,
-      y: HUDNotchGeometry.closedSize(for: screen).height
+      y: HUDNotchGeometry.closedSize(for: screen, simulated: settings.notchSize).height
     )
     let rippleEnabled = !reduceMotion && settings.voiceVisual == .glow
     return Color.black

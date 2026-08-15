@@ -19,6 +19,8 @@ final class AppSettings {
     static let longDraftStyle = "hudLongDraftStyle"
     static let glowPalette = "hudGlowPalette"
     static let glowCenter = "hudGlowCenter"
+    static let notchWidth = "hudNotchWidth"
+    static let notchHeight = "hudNotchHeight"
     static let readAloudVoice = "readAloudVoice"
     static let dictationTriggerBinding = "dictationTriggerBinding"
     static let readAloudBinding = "readAloudBinding"
@@ -56,6 +58,38 @@ final class AppSettings {
 
   var glowPalette: HUDGlowPalette {
     didSet { defaults.set(glowPalette.rawValue, forKey: Keys.glowPalette) }
+  }
+
+  /// The simulated notch's footprint. Clamped on the way in rather than
+  /// snapped to steps, since this is a number to be nudged until it looks
+  /// right rather than picked from a menu.
+  var notchWidth: Double {
+    didSet {
+      // Guarded, not assigned outright: @Observable turns this into a computed
+      // property, so writing to it here comes back through the same setter.
+      // Without the guard that is unbounded recursion, not one correction.
+      let clamped = HUDNotchSize.clampedWidth(notchWidth)
+      guard clamped == notchWidth else {
+        notchWidth = clamped
+        return
+      }
+      defaults.set(notchWidth, forKey: Keys.notchWidth)
+    }
+  }
+
+  var notchHeight: Double {
+    didSet {
+      let clamped = HUDNotchSize.clampedHeight(notchHeight)
+      guard clamped == notchHeight else {
+        notchHeight = clamped
+        return
+      }
+      defaults.set(notchHeight, forKey: Keys.notchHeight)
+    }
+  }
+
+  var notchSize: CGSize {
+    HUDNotchSize.size(width: notchWidth, height: notchHeight)
   }
 
   var glowCenter: HUDGlowCenterStyle {
@@ -158,6 +192,12 @@ final class AppSettings {
     longDraftStyle = Self.stored(in: defaults, key: Keys.longDraftStyle) ?? .growDown
     glowPalette = Self.stored(in: defaults, key: Keys.glowPalette) ?? .spectrum
     glowCenter = Self.stored(in: defaults, key: Keys.glowCenter) ?? .particles
+    notchWidth = HUDNotchSize.clampedWidth(
+      defaults.object(forKey: Keys.notchWidth) as? Double ?? HUDNotchSize.defaultWidth
+    )
+    notchHeight = HUDNotchSize.clampedHeight(
+      defaults.object(forKey: Keys.notchHeight) as? Double ?? HUDNotchSize.defaultHeight
+    )
     readAloudVoiceID = defaults.string(forKey: Keys.readAloudVoice) ?? ""
     dictationTriggerBinding = Self.storedBinding(
       in: defaults, key: Keys.dictationTriggerBinding
@@ -210,6 +250,7 @@ struct DictationSessionSettings: Equatable {
   let longDraftStyle: HUDLongDraftStyle
   let glowPalette: HUDGlowPalette
   let glowCenter: HUDGlowCenterStyle
+  let notchSize: CGSize
 
   @MainActor
   init(settings: AppSettings) {
@@ -220,6 +261,7 @@ struct DictationSessionSettings: Equatable {
     longDraftStyle = settings.longDraftStyle
     glowPalette = settings.glowPalette
     glowCenter = settings.glowCenter
+    notchSize = settings.notchSize
   }
 }
 

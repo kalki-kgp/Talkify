@@ -196,7 +196,10 @@ final class DictationHUDController {
       settings: renderedSettings,
       content: content
     )
-    panel.setFrame(HUDNotchGeometry.windowFrame(for: screen), display: true)
+    panel.setFrame(
+      HUDNotchGeometry.windowFrame(for: screen, simulated: renderedSettings.notchSize),
+      display: true
+    )
     panel.orderFrontRegardless()
 
     guard !content.isRevealed else { return }

@@ -36,6 +36,10 @@ enum HUDNotchGeometry {
 
   static let bottomCornerRadius: CGFloat = 20
 
+  /// The tallest housing the notch-size preference allows. The host window is
+  /// sized for this, so raising the height never needs a window resize.
+  static let maxClosedHeight = CGFloat(HUDNotchSize.heightRange.upperBound)
+
   /// The notch this display actually reports, or nil when there is nothing
   /// to measure. Width comes from the two auxiliary areas by subtraction so
   /// the result does not depend on which coordinate space they arrive in.
@@ -58,9 +62,18 @@ enum HUDNotchGeometry {
     return CGSize(width: width, height: screen.safeAreaTop)
   }
 
-  /// The housing footprint, falling back to the simulated stand-in.
-  static func closedSize(for screen: HUDScreenSnapshot) -> CGSize {
-    measuredClosedSize(for: screen) ?? fallbackClosedSize
+  /// The housing footprint: what the display measures, or the simulated
+  /// stand-in where there is nothing to measure.
+  ///
+  /// `simulated` is only ever consulted on the second branch. A display with a
+  /// real housing keeps the size it reported, because the shape flares into
+  /// that housing's edges and a different number would leave the fillets
+  /// hanging in open screen.
+  static func closedSize(
+    for screen: HUDScreenSnapshot,
+    simulated: CGSize = fallbackClosedSize
+  ) -> CGSize {
+    measuredClosedSize(for: screen) ?? simulated
   }
 
   /// Whether this display has a housing of its own for the HUD to hug.
@@ -74,11 +87,12 @@ enum HUDNotchGeometry {
   static func contentSize(
     for screen: HUDScreenSnapshot,
     visualBandHeight: CGFloat,
-    includesTextBand: Bool
+    includesTextBand: Bool,
+    simulated: CGSize = fallbackClosedSize
   ) -> CGSize {
     CGSize(
-      width: min(contentWidth, windowFrame(for: screen).width),
-      height: closedSize(for: screen).height
+      width: min(contentWidth, windowFrame(for: screen, simulated: simulated).width),
+      height: closedSize(for: screen, simulated: simulated).height
         + visualBandHeight
         + (includesTextBand ? textBandHeight : 0)
     )
@@ -93,9 +107,22 @@ enum HUDNotchGeometry {
 
   /// The host window's frame: content size plus shadow slack, centered and
   /// pinned to the top, clamped to the screen width.
-  static func windowFrame(for screen: HUDScreenSnapshot) -> CGRect {
+  ///
+  /// Sized for the tallest housing the person can choose rather than the one
+  /// they have chosen, so changing the notch height moves the shape inside a
+  /// window that never resizes.
+  static func windowFrame(
+    for screen: HUDScreenSnapshot,
+    simulated: CGSize = fallbackClosedSize
+  ) -> CGRect {
     let width = min(contentWidth + shadowPadding * 2, screen.frame.width)
-    let height = closedSize(for: screen).height
+    // A measured housing never changes, so the window stays tight around it.
+    // Only the simulated one can be resized, and there the window is sized for
+    // the tallest allowed rather than the one chosen.
+    let housingHeight = hasMeasuredNotch(for: screen)
+      ? closedSize(for: screen, simulated: simulated).height
+      : maxClosedHeight
+    let height = housingHeight
       + max(waveBandHeight, visualBandHeight + maxTextBandHeight)
       + shadowPadding
 
