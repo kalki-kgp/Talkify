@@ -4,7 +4,16 @@ import ApplicationServices
 @MainActor
 final class TextInsertionService {
   struct Target {
-    fileprivate let element: AXUIElement
+    /// Nil when the application refuses to name its focused element. Chromium
+    /// does this for everything drawn by the renderer — a YouTube search box, a
+    /// Gmail compose window — and it cannot be talked out of it:
+    /// `AXManualAccessibility` answers "attribute unsupported" and
+    /// `AXEnhancedUserInterface` answers "not implemented".
+    ///
+    /// A nil element is not a dead end, because the paste route never needed
+    /// the element. It needs the right application to be frontmost, and that is
+    /// knowable.
+    fileprivate let element: AXUIElement?
     fileprivate let processIdentifier: pid_t
     /// Readable outside insertion because Text Cleanup scopes its style rules
     /// by application — the app about to receive the text is the app whose
@@ -32,7 +41,7 @@ final class TextInsertionService {
       &value
     ) == .success,
     let value else {
-      return nil
+      return frontmostApplicationTarget()
     }
 
     let element = value as! AXUIElement
@@ -46,6 +55,36 @@ final class TextInsertionService {
       bundleIdentifier: application?.bundleIdentifier,
       isSecure: isSecureTextField(element),
       displayID: displayID(for: element)
+    )
+  }
+
+  /// The application in front, for when it will not say what is focused inside
+  /// it. Insertion falls back to pasting, which lands wherever the caret is.
+  ///
+  /// The cost is stated rather than hidden: with no element there is no way to
+  /// ask whether the field is secure, so the secure-field refusal cannot run
+  /// here. That is not a step backwards — before this, the text went to the
+  /// clipboard and stayed there, which leaves it lying around for longer than
+  /// pasting it does.
+  private func frontmostApplicationTarget() -> Target? {
+    guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
+
+    // The window is usually still readable even when its contents are not,
+    // which is enough to put the HUD on the right screen.
+    let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
+    var focusedWindow: CFTypeRef?
+    let window = AXUIElementCopyAttributeValue(
+      applicationElement,
+      kAXFocusedWindowAttribute as CFString,
+      &focusedWindow
+    ) == .success ? focusedWindow.map { $0 as! AXUIElement } : nil
+
+    return Target(
+      element: nil,
+      processIdentifier: application.processIdentifier,
+      bundleIdentifier: application.bundleIdentifier,
+      isSecure: false,
+      displayID: window.flatMap { displayID(for: $0) }
     )
   }
 
@@ -69,7 +108,13 @@ final class TextInsertionService {
       return
     }
 
-    remember(.paste, for: target.bundleIdentifier)
+    // Only a real element proves anything about the route. An application that
+    // hid its focused element this once may well expose the next field, and
+    // one refusal must not condemn every field it owns to pasting.
+    if target.element != nil {
+      remember(.paste, for: target.bundleIdentifier)
+    }
+
     guard isStillFocused(target) else {
       copyToClipboard(text)
       return
@@ -85,9 +130,11 @@ final class TextInsertionService {
   /// this to notice corrections, and treats nil as "no signal from this app"
   /// rather than as a failure.
   func readValue(of target: Target) -> String? {
+    guard let element = target.element else { return nil }
+
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(
-      target.element,
+      element,
       kAXValueAttribute as CFString,
       &value
     ) == .success else { return nil }
@@ -172,9 +219,11 @@ final class TextInsertionService {
   }
 
   private func insertThroughAccessibility(_ text: String, target: Target) -> Bool {
+    guard let element = target.element else { return false }
+
     var isSettable: DarwinBoolean = false
     let settableResult = AXUIElementIsAttributeSettable(
-      target.element,
+      element,
       kAXSelectedTextAttribute as CFString,
       &isSettable
     )
@@ -182,13 +231,23 @@ final class TextInsertionService {
     guard settableResult == .success, isSettable.boolValue else { return false }
 
     return AXUIElementSetAttributeValue(
-      target.element,
+      element,
       kAXSelectedTextAttribute as CFString,
       text as CFString
     ) == .success
   }
 
+  /// Whether the paste is still going where it was meant to go.
+  ///
+  /// With an element, that means the very same field. Without one, it means the
+  /// same application is still in front — which is the whole of what a
+  /// synthesized ⌘V depends on, since the keystroke goes to whoever has focus.
   private func isStillFocused(_ target: Target) -> Bool {
+    guard let element = target.element else {
+      return NSWorkspace.shared.frontmostApplication?.processIdentifier
+        == target.processIdentifier
+    }
+
     let systemWideElement = AXUIElementCreateSystemWide()
     var value: CFTypeRef?
 
@@ -201,7 +260,7 @@ final class TextInsertionService {
       return false
     }
 
-    return CFEqual(value, target.element)
+    return CFEqual(value, element)
   }
 
   private func pasteAndRestoreClipboard(_ text: String) async {
