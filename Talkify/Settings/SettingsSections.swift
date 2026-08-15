@@ -22,6 +22,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
   case shortcuts
   case updates
   case insights
+  case diagnostics
 
   var id: Self { self }
   var group: SettingsSectionGroup { .settings }
@@ -37,6 +38,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case .shortcuts: "Shortcuts"
     case .updates: "Updates"
     case .insights: "Insights"
+    case .diagnostics: "Diagnostics"
     }
   }
 
@@ -51,6 +53,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case .shortcuts: "Rebind the Direct Dictation and Read Aloud keys"
     case .updates: "Keep Talkify current"
     case .insights: "Review your local Direct Dictation activity"
+    case .diagnostics: "What Talkify can see, and what it last did"
     }
   }
 
@@ -65,6 +68,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case .shortcuts: "keyboard"
     case .updates: "arrow.down.circle"
     case .insights: "chart.bar.xaxis"
+    case .diagnostics: "stethoscope"
     }
   }
 }

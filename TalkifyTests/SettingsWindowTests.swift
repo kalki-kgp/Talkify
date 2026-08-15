@@ -26,6 +26,7 @@ struct SettingsWindowTests {
         cleanupService: CleanupService(),
         queue: CleanupSuggestionQueue(styleRules: StyleRuleList(), vocabulary: VocabularyList())
       ),
+      diagnostics: DictationDiagnostics(),
       updater: SparkleUpdaterService()
     )
     let window = try #require(controller.window)
@@ -42,7 +43,7 @@ struct SettingsWindowTests {
   @Test func settingsSectionsStayFocusedOnImplementedFeatures() {
     let expected: [SettingsSection] = [
       .appearance, .sounds, .readAloud, .language, .vocabulary, .cleanup, .shortcuts, .updates,
-      .insights,
+      .insights, .diagnostics,
     ]
     #expect(SettingsSection.allCases == expected)
     #expect(SettingsSectionGroup.settings.sections == expected)

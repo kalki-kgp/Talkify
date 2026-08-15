@@ -26,6 +26,7 @@ final class SettingsWindowController: NSWindowController {
     suggestions: CleanupSuggestionQueue,
     calibrator: CleanupCalibrator,
     learning: CleanupLearningController,
+    diagnostics: DictationDiagnostics,
     updater: SparkleUpdaterService
   ) {
     let window = TalkifySettingsWindow(
@@ -45,6 +46,7 @@ final class SettingsWindowController: NSWindowController {
         suggestions: suggestions,
         calibrator: calibrator,
         learning: learning,
+        diagnostics: diagnostics,
         updater: updater,
         onClose: { [weak window] in window?.close() }
       )

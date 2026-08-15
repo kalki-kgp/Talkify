@@ -214,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func showSettings() {
     guard let settings, let usageTracker, let vocabulary, let styleRules, let suggestions,
-      let calibrator, let learningController
+      let calibrator, let learningController, let dictationController
     else { return }
     if settingsWindowController == nil {
       settingsWindowController = SettingsWindowController(
@@ -227,6 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         suggestions: suggestions,
         calibrator: calibrator,
         learning: learningController,
+        diagnostics: dictationController.diagnostics,
         updater: updaterService
       )
     }

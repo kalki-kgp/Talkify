@@ -44,6 +44,7 @@ final class DirectDictationController {
     return watcher
   }()
   private let corrections: CorrectionBuffer
+  let diagnostics = DictationDiagnostics()
 
   private var keyEventMonitor: GlobalKeyEventMonitor?
   private var machine = DictationSessionMachine()
@@ -493,7 +494,13 @@ final class DirectDictationController {
         // the session still working rather than as nothing happening.
         let insertedText = await cleanedText(for: text)
         hudController.hide()
-        await textInsertionService.insert(insertedText, into: focusedTarget)
+        let outcome = await textInsertionService.insert(insertedText, into: focusedTarget)
+        diagnostics.record(
+          applicationName: focusedTarget?.applicationName,
+          characterCount: insertedText.count,
+          hadFocusedElement: focusedTarget?.hasFocusedElement ?? false,
+          outcome: outcome
+        )
         // Started before the target is released, since the watcher's baseline
         // read needs the element that was just written to.
         if settings.isCleanupLearningEnabled {
@@ -544,6 +551,10 @@ final class DirectDictationController {
   private func fail(message: String, wasCancelled: Bool) {
     let effects = machine.reduce(.recognitionFailed(wasCancelled: wasCancelled))
     guard !effects.isEmpty else { return }
+
+    if !wasCancelled {
+      diagnostics.recordFailure(message)
+    }
 
     if effects.contains(.cancelRecognition) {
       // Active failure: cancel recognition, reset, then show why.

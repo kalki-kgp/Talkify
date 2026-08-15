@@ -22,11 +22,45 @@ final class TextInsertionService {
 
     let isSecure: Bool
     let displayID: CGDirectDisplayID?
+
+    /// False when the application would not name its focused element, which is
+    /// the difference between "pasting is the only option here" and "the field
+    /// was there and something else went wrong".
+    var hasFocusedElement: Bool { element != nil }
+
+    var applicationName: String? {
+      NSRunningApplication(processIdentifier: processIdentifier)?.localizedName
+    }
   }
 
   private enum Route {
     case accessibility
     case paste
+  }
+
+  /// Where the text ended up. Reported in Settings, because "nothing happened"
+  /// covers four different failures and they need different answers.
+  enum Outcome: Equatable {
+    case nothingToInsert
+    case setInPlace
+    case pasted
+    case leftOnClipboard(reason: String)
+
+    var title: String {
+      switch self {
+      case .nothingToInsert: "Nothing to insert"
+      case .setInPlace: "Written straight into the field"
+      case .pasted: "Pasted"
+      case .leftOnClipboard: "Left on the clipboard"
+      }
+    }
+
+    var detail: String? {
+      switch self {
+      case let .leftOnClipboard(reason): reason
+      default: nil
+      }
+    }
   }
 
   private var routesByBundleIdentifier: [String: Route] = [:]
@@ -88,24 +122,25 @@ final class TextInsertionService {
     )
   }
 
-  func insert(_ text: String, into target: Target?) async {
-    guard !text.isEmpty else { return }
+  @discardableResult
+  func insert(_ text: String, into target: Target?) async -> Outcome {
+    guard !text.isEmpty else { return .nothingToInsert }
     guard let target else {
       copyToClipboard(text)
-      return
+      return .leftOnClipboard(reason: "No application was in front to insert into.")
     }
 
     guard let application = NSRunningApplication(
       processIdentifier: target.processIdentifier
     ), !application.isTerminated else {
       copyToClipboard(text)
-      return
+      return .leftOnClipboard(reason: "The application quit during the session.")
     }
 
     let route = target.bundleIdentifier.flatMap { routesByBundleIdentifier[$0] }
     if route != .paste, insertThroughAccessibility(text, target: target) {
       remember(.accessibility, for: target.bundleIdentifier)
-      return
+      return .setInPlace
     }
 
     // Only a real element proves anything about the route. An application that
@@ -117,9 +152,14 @@ final class TextInsertionService {
 
     guard isStillFocused(target) else {
       copyToClipboard(text)
-      return
+      return .leftOnClipboard(
+        reason: target.element == nil
+          ? "\(application.localizedName ?? "The application") was no longer in front."
+          : "The field that was focused when the session began no longer is."
+      )
     }
     await pasteAndRestoreClipboard(text)
+    return .pasted
   }
 
   /// The whole contents of a target field, or nil when it cannot be read.

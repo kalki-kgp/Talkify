@@ -13,6 +13,7 @@ struct SettingsView: View {
   let suggestions: CleanupSuggestionQueue
   let calibrator: CleanupCalibrator
   let learning: CleanupLearningController
+  let diagnostics: DictationDiagnostics
   let updater: SparkleUpdaterService
   let onClose: () -> Void
 
@@ -47,6 +48,7 @@ struct SettingsView: View {
             suggestions: suggestions,
             calibrator: calibrator,
             learning: learning,
+            diagnostics: diagnostics,
             runtimeState: runtimeState,
             updater: updater
           )
@@ -237,6 +239,7 @@ private struct SettingsContent: View {
   let suggestions: CleanupSuggestionQueue
   let calibrator: CleanupCalibrator
   let learning: CleanupLearningController
+  let diagnostics: DictationDiagnostics
   let runtimeState: SettingsRuntimeState
   let updater: SparkleUpdaterService
 
@@ -278,6 +281,8 @@ private struct SettingsContent: View {
           UpdatesSettingsView(updater: updater)
         case .insights:
           InsightsSettingsView(tracker: usageTracker)
+        case .diagnostics:
+          DiagnosticsSettingsView(diagnostics: diagnostics)
         }
       }
       .frame(maxWidth: 620, alignment: .leading)
@@ -321,6 +326,7 @@ private struct SettingsContent: View {
       cleanupService: CleanupService(),
       queue: CleanupSuggestionQueue(styleRules: StyleRuleList(), vocabulary: VocabularyList())
     ),
+    diagnostics: DictationDiagnostics(),
     // Never started, so the preview shows the pane's disabled state rather
     // than reaching for the network.
     updater: SparkleUpdaterService(),
