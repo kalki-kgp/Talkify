@@ -138,6 +138,12 @@ final class TextInsertionService {
     }
 
     let route = target.bundleIdentifier.flatMap { routesByBundleIdentifier[$0] }
+    DictationLog.insertion.notice(
+      """
+      route: remembered=\(String(describing: route), privacy: .public) \
+      element=\(target.element != nil, privacy: .public)
+      """
+    )
     if route != .paste, insertThroughAccessibility(text, target: target) {
       remember(.accessibility, for: target.bundleIdentifier)
       return .setInPlace
@@ -150,7 +156,9 @@ final class TextInsertionService {
       remember(.paste, for: target.bundleIdentifier)
     }
 
-    guard isStillFocused(target) else {
+    let stillFocused = isStillFocused(target)
+    DictationLog.insertion.notice("stillFocused: \(stillFocused, privacy: .public)")
+    guard stillFocused else {
       copyToClipboard(text)
       return .leftOnClipboard(
         reason: target.element == nil
@@ -326,7 +334,11 @@ final class TextInsertionService {
     postPasteShortcut()
     try? await Task.sleep(for: .milliseconds(150))
 
-    guard pasteboard.changeCount == insertedChangeCount else { return }
+    guard pasteboard.changeCount == insertedChangeCount else {
+      DictationLog.insertion.notice("paste: clipboard changed underneath, left alone")
+      return
+    }
+    DictationLog.insertion.notice("paste: posted and clipboard restored")
     pasteboard.clearContents()
     if !savedItems.isEmpty {
       pasteboard.writeObjects(savedItems)
@@ -343,8 +355,12 @@ final class TextInsertionService {
     guard let source = CGEventSource(stateID: .combinedSessionState),
        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true),
        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else {
+      DictationLog.insertion.error("paste: could not build the keyboard event")
       return
     }
+    DictationLog.insertion.notice(
+      "paste: posting Cmd+V, current flags=\(CGEventSource.flagsState(.combinedSessionState).rawValue, privacy: .public)"
+    )
 
     keyDown.flags = .maskCommand
     keyUp.flags = .maskCommand

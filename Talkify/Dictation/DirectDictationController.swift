@@ -312,6 +312,7 @@ final class DirectDictationController {
   }
 
   private func handle(_ event: GlobalKeyEventMonitor.Event) {
+    DictationLog.session.notice("key: \(String(describing: event), privacy: .public)")
     switch event {
     case let .triggerPressed(slot):
       // While a session runs, only the key that started it controls it. The
@@ -420,6 +421,13 @@ final class DirectDictationController {
     correctionWatcher.cancel()
 
     let target = textInsertionService.captureFocusedTarget()
+    DictationLog.session.notice(
+      """
+      begin: app=\(target?.bundleIdentifier ?? "none", privacy: .public) \
+      element=\(target?.hasFocusedElement ?? false, privacy: .public) \
+      secure=\(target?.isSecure ?? false, privacy: .public)
+      """
+    )
     if target?.isSecure == true {
       hudController.showMessage("Secure field", on: target?.displayID)
       send(.beginRejected)
@@ -490,11 +498,18 @@ final class DirectDictationController {
       guard let self else { return }
       do {
         let text = try await speechService.finish()
+        DictationLog.session.notice(
+          "recognized: \(text.count, privacy: .public) characters"
+        )
         // Cleanup runs before the HUD comes down, so the wait it adds reads as
         // the session still working rather than as nothing happening.
         let insertedText = await cleanedText(for: text)
         hudController.hide()
+        DictationLog.session.notice(
+          "inserting: \(insertedText.count, privacy: .public) characters"
+        )
         let outcome = await textInsertionService.insert(insertedText, into: focusedTarget)
+        DictationLog.session.notice("outcome: \(outcome.title, privacy: .public)")
         diagnostics.record(
           applicationName: focusedTarget?.applicationName,
           characterCount: insertedText.count,
@@ -554,6 +569,7 @@ final class DirectDictationController {
 
     if !wasCancelled {
       diagnostics.recordFailure(message)
+      DictationLog.session.error("failed: \(message, privacy: .public)")
     }
 
     if effects.contains(.cancelRecognition) {
