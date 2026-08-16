@@ -31,6 +31,20 @@ final class TextInsertionService {
     var applicationName: String? {
       NSRunningApplication(processIdentifier: processIdentifier)?.localizedName
     }
+
+    init(
+      element: AXUIElement?,
+      processIdentifier: pid_t,
+      bundleIdentifier: String? = nil,
+      isSecure: Bool,
+      displayID: CGDirectDisplayID?
+    ) {
+      self.element = element
+      self.processIdentifier = processIdentifier
+      self.bundleIdentifier = bundleIdentifier
+      self.isSecure = isSecure
+      self.displayID = displayID
+    }
   }
 
   private enum Route {
@@ -63,33 +77,123 @@ final class TextInsertionService {
     }
   }
 
-  private var routesByBundleIdentifier: [String: Route] = [:]
+  struct Dependencies {
+    let pasteboard: NSPasteboard
+    let focusedElement: @MainActor () -> AXUIElement?
+    let frontmostApplication: @MainActor () -> NSRunningApplication?
+    let isProcessRunning: @MainActor (pid_t) -> Bool
+    let isTargetFocused: @MainActor (Target) -> Bool
+    let postPasteShortcut: @MainActor () -> Bool
+    let waitForPasteRead: @MainActor () async -> Void
+    /// The three halves of the Accessibility write, separated so the
+    /// verification around them can be tested against an app that lies.
+    let isSelectedTextSettable: @MainActor (AXUIElement) -> Bool
+    let readElementValue: @MainActor (AXUIElement) -> String?
+    let setSelectedText: @MainActor (AXUIElement, String) -> Bool
+    let waitForAccessibilitySettle: @MainActor () async -> Void
 
-  func captureFocusedTarget() -> Target? {
-    let systemWideElement = AXUIElementCreateSystemWide()
-    var value: CFTypeRef?
-
-    guard AXUIElementCopyAttributeValue(
-      systemWideElement,
-      kAXFocusedUIElementAttribute as CFString,
-      &value
-    ) == .success,
-    let value else {
-      return frontmostApplicationTarget()
+    /// The Accessibility seams default to "this field cannot be written",
+    /// which is the universal paste route and nothing else. A test that cares
+    /// about the write says so; every other one describes pasting.
+    init(
+      pasteboard: NSPasteboard,
+      focusedElement: @escaping @MainActor () -> AXUIElement?,
+      frontmostApplication: @escaping @MainActor () -> NSRunningApplication?,
+      isProcessRunning: @escaping @MainActor (pid_t) -> Bool,
+      isTargetFocused: @escaping @MainActor (Target) -> Bool,
+      postPasteShortcut: @escaping @MainActor () -> Bool,
+      waitForPasteRead: @escaping @MainActor () async -> Void,
+      isSelectedTextSettable: @escaping @MainActor (AXUIElement) -> Bool = { _ in false },
+      readElementValue: @escaping @MainActor (AXUIElement) -> String? = { _ in nil },
+      setSelectedText: @escaping @MainActor (AXUIElement, String) -> Bool = { _, _ in false },
+      waitForAccessibilitySettle: @escaping @MainActor () async -> Void = {}
+    ) {
+      self.pasteboard = pasteboard
+      self.focusedElement = focusedElement
+      self.frontmostApplication = frontmostApplication
+      self.isProcessRunning = isProcessRunning
+      self.isTargetFocused = isTargetFocused
+      self.postPasteShortcut = postPasteShortcut
+      self.waitForPasteRead = waitForPasteRead
+      self.isSelectedTextSettable = isSelectedTextSettable
+      self.readElementValue = readElementValue
+      self.setSelectedText = setSelectedText
+      self.waitForAccessibilitySettle = waitForAccessibilitySettle
     }
 
-    let element = value as! AXUIElement
-    var processIdentifier: pid_t = 0
-    AXUIElementGetPid(element, &processIdentifier)
+    static var live: Self {
+      Self(
+        pasteboard: .general,
+        focusedElement: TextInsertionService.focusedElement,
+        frontmostApplication: { NSWorkspace.shared.frontmostApplication },
+        isProcessRunning: { processIdentifier in
+          guard let application = NSRunningApplication(
+            processIdentifier: processIdentifier
+          ) else {
+            return false
+          }
+          return !application.isTerminated
+        },
+        isTargetFocused: TextInsertionService.isStillFocused,
+        postPasteShortcut: TextInsertionService.postPasteShortcut,
+        waitForPasteRead: {
+          try? await Task.sleep(for: .milliseconds(500))
+        },
+        isSelectedTextSettable: { element in
+          var isSettable: DarwinBoolean = false
+          let result = AXUIElementIsAttributeSettable(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            &isSettable
+          )
+          return result == .success && isSettable.boolValue
+        },
+        readElementValue: { element in
+          var value: CFTypeRef?
+          guard AXUIElementCopyAttributeValue(
+            element,
+            kAXValueAttribute as CFString,
+            &value
+          ) == .success else { return nil }
+          return value as? String
+        },
+        setSelectedText: { element, text in
+          AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            text as CFString
+          ) == .success
+        },
+        waitForAccessibilitySettle: {
+          try? await Task.sleep(for: .milliseconds(150))
+        }
+      )
+    }
+  }
 
-    let application = NSRunningApplication(processIdentifier: processIdentifier)
-    return Target(
-      element: element,
-      processIdentifier: processIdentifier,
-      bundleIdentifier: application?.bundleIdentifier,
-      isSecure: isSecureTextField(element),
-      displayID: displayID(for: element)
-    )
+  private let dependencies: Dependencies
+  private var routesByBundleIdentifier: [String: Route] = [:]
+
+  init(dependencies: Dependencies = .live) {
+    self.dependencies = dependencies
+  }
+
+  func captureFocusedTarget() -> Target? {
+    if let element = dependencies.focusedElement() {
+      var processIdentifier: pid_t = 0
+      AXUIElementGetPid(element, &processIdentifier)
+
+      let application = NSRunningApplication(processIdentifier: processIdentifier)
+      return Target(
+        element: element,
+        processIdentifier: processIdentifier,
+        bundleIdentifier: application?.bundleIdentifier,
+        isSecure: isSecureTextField(element),
+        displayID: displayID(for: element)
+      )
+    }
+
+    return frontmostApplicationTarget()
   }
 
   /// The application in front, for when it will not say what is focused inside
@@ -101,7 +205,7 @@ final class TextInsertionService {
   /// clipboard and stayed there, which leaves it lying around for longer than
   /// pasting it does.
   private func frontmostApplicationTarget() -> Target? {
-    guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
+    guard let application = dependencies.frontmostApplication() else { return nil }
 
     // The window is usually still readable even when its contents are not,
     // which is enough to put the HUD on the right screen.
@@ -122,6 +226,10 @@ final class TextInsertionService {
     )
   }
 
+  /// Pasting is the route that works everywhere, so it is the one every
+  /// failure falls back to. The Accessibility write is tried first only where
+  /// it can be proven to have worked, because it leaves the clipboard alone
+  /// and does not fire the receiving app's paste handling.
   @discardableResult
   func insert(_ text: String, into target: Target?) async -> Outcome {
     guard !text.isEmpty else { return .nothingToInsert }
@@ -130,9 +238,7 @@ final class TextInsertionService {
       return .leftOnClipboard(reason: "No application was in front to insert into.")
     }
 
-    guard let application = NSRunningApplication(
-      processIdentifier: target.processIdentifier
-    ), !application.isTerminated else {
+    guard dependencies.isProcessRunning(target.processIdentifier) else {
       copyToClipboard(text)
       return .leftOnClipboard(reason: "The application quit during the session.")
     }
@@ -156,17 +262,17 @@ final class TextInsertionService {
       remember(.paste, for: target.bundleIdentifier)
     }
 
-    let stillFocused = isStillFocused(target)
+    let stillFocused = dependencies.isTargetFocused(target)
     DictationLog.insertion.notice("stillFocused: \(stillFocused, privacy: .public)")
     guard stillFocused else {
       copyToClipboard(text)
       return .leftOnClipboard(
         reason: target.element == nil
-          ? "\(application.localizedName ?? "The application") was no longer in front."
+          ? "\(target.applicationName ?? "The application") was no longer in front."
           : "The field that was focused when the session began no longer is."
       )
     }
-    await pasteAndRestoreClipboard(text)
+    await pasteAndRestoreClipboard(text, into: target)
     return .pasted
   }
 
@@ -179,14 +285,21 @@ final class TextInsertionService {
   /// rather than as a failure.
   func readValue(of target: Target) -> String? {
     guard let element = target.element else { return nil }
+    return dependencies.readElementValue(element)
+  }
 
+  private static func focusedElement() -> AXUIElement? {
+    let systemWideElement = AXUIElementCreateSystemWide()
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(
-      element,
-      kAXValueAttribute as CFString,
+      systemWideElement,
+      kAXFocusedUIElementAttribute as CFString,
       &value
-    ) == .success else { return nil }
-    return value as? String
+    ) == .success,
+    let value else {
+      return nil
+    }
+    return (value as! AXUIElement)
   }
 
   private func isSecureTextField(_ element: AXUIElement) -> Bool {
@@ -277,42 +390,35 @@ final class TextInsertionService {
   /// So success now means observed, not reported.
   private func insertThroughAccessibility(_ text: String, target: Target) async -> Bool {
     guard let element = target.element else { return false }
-
-    var isSettable: DarwinBoolean = false
-    let settableResult = AXUIElementIsAttributeSettable(
-      element,
-      kAXSelectedTextAttribute as CFString,
-      &isSettable
-    )
-
-    guard settableResult == .success, isSettable.boolValue else { return false }
+    guard dependencies.isSelectedTextSettable(element) else { return false }
 
     // Nothing is written into a field that cannot be read back, because the
     // result could not be told apart from the silent drop above. Pasting is no
     // more verifiable, but it does not quietly do nothing.
-    guard let before = readValue(of: target) else {
+    guard let before = dependencies.readElementValue(element) else {
       DictationLog.insertion.notice("ax: field cannot be read back, not risking a silent write")
       return false
     }
 
-    guard AXUIElementSetAttributeValue(
-      element,
-      kAXSelectedTextAttribute as CFString,
-      text as CFString
-    ) == .success else {
+    guard dependencies.setSelectedText(element, text) else {
       DictationLog.insertion.notice("ax: write refused")
       return false
     }
 
-    if readValue(of: target) != before { return true }
+    if dependencies.readElementValue(element) != before { return true }
 
     // One unchanged read is not proof: a renderer can answer before it has
     // applied the write. A second, after a beat, is — and this only costs
     // anything on the path that is already failing.
-    try? await Task.sleep(for: .milliseconds(150))
-    let landed = readValue(of: target) != before
+    await dependencies.waitForAccessibilitySettle()
+    let landed = dependencies.readElementValue(element) != before
     DictationLog.insertion.notice("ax: verified=\(landed, privacy: .public)")
     return landed
+  }
+
+  private func remember(_ route: Route, for bundleIdentifier: String?) {
+    guard let bundleIdentifier else { return }
+    routesByBundleIdentifier[bundleIdentifier] = route
   }
 
   /// Whether the paste is still going where it was meant to go.
@@ -320,8 +426,8 @@ final class TextInsertionService {
   /// With an element, that means the very same field. Without one, it means the
   /// same application is still in front — which is the whole of what a
   /// synthesized ⌘V depends on, since the keystroke goes to whoever has focus.
-  private func isStillFocused(_ target: Target) -> Bool {
-    guard let element = target.element else {
+  private static func isStillFocused(_ target: Target) -> Bool {
+    guard let targetElement = target.element else {
       return NSWorkspace.shared.frontmostApplication?.processIdentifier
         == target.processIdentifier
     }
@@ -338,11 +444,11 @@ final class TextInsertionService {
       return false
     }
 
-    return CFEqual(value, element)
+    return CFEqual(value, targetElement)
   }
 
-  private func pasteAndRestoreClipboard(_ text: String) async {
-    let pasteboard = NSPasteboard.general
+  private func pasteAndRestoreClipboard(_ text: String, into target: Target) async {
+    let pasteboard = dependencies.pasteboard
     let sourceItems = pasteboard.pasteboardItems ?? []
     var savedItems: [NSPasteboardItem] = []
     savedItems.reserveCapacity(sourceItems.count)
@@ -361,14 +467,13 @@ final class TextInsertionService {
     pasteboard.setString(text, forType: .string)
     let insertedChangeCount = pasteboard.changeCount
 
-    postPasteShortcut()
-    try? await Task.sleep(for: .milliseconds(150))
+    guard dependencies.isTargetFocused(target),
+       dependencies.postPasteShortcut() else { return }
+    await dependencies.waitForPasteRead()
 
-    guard pasteboard.changeCount == insertedChangeCount else {
-      DictationLog.insertion.notice("paste: clipboard changed underneath, left alone")
-      return
-    }
-    DictationLog.insertion.notice("paste: posted and clipboard restored")
+    // Reads do not change changeCount. The delay gives asynchronous editors
+    // time to read; this guard protects newer clipboard contents.
+    guard pasteboard.changeCount == insertedChangeCount else { return }
     pasteboard.clearContents()
     if !savedItems.isEmpty {
       pasteboard.writeObjects(savedItems)
@@ -376,31 +481,23 @@ final class TextInsertionService {
   }
 
   private func copyToClipboard(_ text: String) {
-    let pasteboard = NSPasteboard.general
+    let pasteboard = dependencies.pasteboard
     pasteboard.clearContents()
     pasteboard.setString(text, forType: .string)
   }
 
-  private func postPasteShortcut() {
+  private static func postPasteShortcut() -> Bool {
     guard let source = CGEventSource(stateID: .combinedSessionState),
        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true),
        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else {
-      DictationLog.insertion.error("paste: could not build the keyboard event")
-      return
+      return false
     }
-    DictationLog.insertion.notice(
-      "paste: posting Cmd+V, current flags=\(CGEventSource.flagsState(.combinedSessionState).rawValue, privacy: .public)"
-    )
 
     keyDown.flags = .maskCommand
     keyUp.flags = .maskCommand
     keyDown.post(tap: .cghidEventTap)
     keyUp.post(tap: .cghidEventTap)
-  }
-
-  private func remember(_ route: Route, for bundleIdentifier: String?) {
-    guard let bundleIdentifier else { return }
-    routesByBundleIdentifier[bundleIdentifier] = route
+    return true
   }
 }
 

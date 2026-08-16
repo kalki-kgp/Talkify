@@ -19,11 +19,17 @@ struct DiagnosticsSettingsView: View {
           granted: diagnostics.accessibility,
           need: "Without it the trigger key is never seen and nothing at all happens."
         )
-        permissionRow(
-          "Input Monitoring",
-          granted: diagnostics.inputMonitoring,
-          need: "Needed to watch the trigger key while another app is in front."
-        )
+        SettingsRow(
+          title: "Input Monitoring",
+          description: "Not required — Accessibility already covers the trigger key. "
+            + "Shown because a leftover grant from an older build is a thing "
+            + "people go looking for."
+        ) {
+          statusText(
+            diagnostics.inputMonitoring ? "Granted" : "Not granted",
+            isGood: true
+          )
+        }
         SettingsRow(
           title: "Microphone",
           description: "Without it a session runs and records silence."

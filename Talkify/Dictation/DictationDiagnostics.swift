@@ -1,4 +1,5 @@
 import AVFAudio
+import CoreGraphics
 import Foundation
 import Speech
 
@@ -25,7 +26,12 @@ final class DictationDiagnostics {
   /// Read fresh every time the pane appears rather than cached — a permission
   /// granted while Settings is open should show as granted.
   var accessibility: Bool { PermissionService.hasAccessibilityAccess }
-  var inputMonitoring: Bool { PermissionService.hasInputMonitoringAccess }
+  /// Read straight from CoreGraphics rather than through `PermissionService`,
+  /// which no longer asks for this: Accessibility alone is enough to install
+  /// the event tap. It is still worth showing, because a stale grant from an
+  /// earlier build is a thing people go looking for, but it is reported as
+  /// information and never as something missing.
+  var inputMonitoring: Bool { CGPreflightListenEventAccess() }
 
   var microphone: String {
     switch AVAudioApplication.shared.recordPermission {

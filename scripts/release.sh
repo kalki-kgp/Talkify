@@ -6,13 +6,20 @@
 #   scripts/release.sh 0.2.0            # build, publish, update the cask
 #   scripts/release.sh 0.2.0 --dry-run  # build and package only, publish nothing
 #
-# The DMG is always named Talkify.dmg so that
-# github.com/<repo>/releases/latest/download/Talkify.dmg keeps working — that
-# is the URL the landing page's Download button uses.
+# Two copies of the same DMG ship with every release. Talkify-vX.Y.Z.dmg is the
+# one people download, so the file in their Downloads folder says which version
+# it is. Talkify.dmg is a byte-identical copy that keeps
+# github.com/<repo>/releases/latest/download/Talkify.dmg resolving — the
+# Homebrew cask, the README and the landing page's fallback all use that URL.
 #
 # Notarization uses a notarytool keychain profile, shared with Camus:
 #   NOTARY_PROFILE   keychain profile name  (default: camus-notary)
 #   SKIP_NOTARIZE=1  sign and package without notarizing (local testing only)
+#
+# The landing page names the current release, so it is rebuilt and uploaded
+# once the release exists:
+#   LANDING_REPO     path to the talkify-landing checkout
+#                    (default: ../talkify-landing; skipped if it is missing)
 
 set -euo pipefail
 
@@ -37,7 +44,9 @@ BUILD_DIR="$REPO_ROOT/.build/release"
 ARCHIVE="$BUILD_DIR/Talkify.xcarchive"
 EXPORT_DIR="$BUILD_DIR/export"
 STAGE_DIR="$BUILD_DIR/dmg"
-DMG="$BUILD_DIR/Talkify.dmg"
+DMG="$BUILD_DIR/Talkify-$TAG.dmg"
+# The stable-URL copy, made after the versioned one is signed and stapled.
+STABLE_DMG="$BUILD_DIR/Talkify.dmg"
 # Sparkle needs its own directory holding only the update ZIP.
 SPARKLE_DIR="$BUILD_DIR/sparkle"
 SPARKLE_ZIP="$SPARKLE_DIR/Talkify-$TAG.zip"
@@ -47,6 +56,9 @@ TEAM_ID="539293JFA3"
 NOTARY_PROFILE="${NOTARY_PROFILE:-camus-notary}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application: Techzy LLC ($TEAM_ID)}"
 ENTITLEMENTS="$REPO_ROOT/Talkify.entitlements"
+# The landing page's checkout, deployed after the release so the site names
+# this version. Only a sibling clone by default; override to point elsewhere.
+LANDING_REPO="${LANDING_REPO:-$REPO_ROOT/../talkify-landing}"
 
 step() { printf '\n\033[1;33m▸ %s\033[0m\n' "$1"; }
 fail() { printf '\033[1;31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
@@ -278,6 +290,11 @@ SHA="$(shasum -a 256 "$DMG" | cut -d' ' -f1)"
 echo "  $DMG ($(du -h "$DMG" | cut -f1))"
 echo "  sha256 $SHA"
 
+# Copied after signing, notarizing and stapling, so the stable-URL asset is the
+# same bytes with the same ticket. The cask's checksum covers both.
+cp "$DMG" "$STABLE_DMG"
+echo "  $STABLE_DMG (copy for the latest-download URL)"
+
 # ----------------------------------------------------------------- sparkle
 
 # Sparkle updates from a ZIP, not the DMG: it is what BinaryDelta and
@@ -335,6 +352,7 @@ grep -E "^  (version|sha256)" "$CASK" | sed 's/^/  /'
 if $DRY_RUN; then
   step "Dry run — nothing published"
   echo "  DMG:  $DMG"
+  echo "  copy: $STABLE_DMG"
   echo "  ZIP:  $SPARKLE_ZIP"
   echo "  appcast: $APPCAST (uncommitted)"
   echo "  cask updated locally; revert with: git checkout -- Casks/talkify.rb"
@@ -386,7 +404,7 @@ PREV_TAG="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)"
 
 # The ZIP ships alongside the DMG because the appcast's enclosure URL points
 # at it. Without it every existing install would poll a 404 forever.
-gh release create "$TAG" "$DMG" "$SPARKLE_ZIP" \
+gh release create "$TAG" "$DMG" "$STABLE_DMG" "$SPARKLE_ZIP" \
   --title "Talkify $VERSION" \
   --notes-file "$NOTES_FILE"
 
@@ -406,6 +424,63 @@ if [[ -n "$ENCLOSURE" ]] && curl -fsSI "$ENCLOSURE" >/dev/null 2>&1; then
   echo "  enclosure reachable"
 else
   echo "  WARNING: the appcast enclosure is not reachable: $ENCLOSURE"
+fi
+
+# The landing page reads the latest release when it builds, so it only learns
+# about this one when it is rebuilt and re-uploaded. The Pages project is
+# direct upload rather than git-connected, so there is no deploy hook to fire:
+# the files have to be built here and pushed. Nothing below is fatal — the
+# release is already published, and a landing page one version behind is worth
+# less than a script that exits non-zero after doing the irreversible part.
+step "Redeploying the landing page"
+deploy_landing() {
+  # Asking git rather than looking for a .git directory: in a worktree .git is
+  # a file, and this repo is worked on in worktrees.
+  git -C "$LANDING_REPO" rev-parse --git-dir >/dev/null 2>&1 || {
+    echo "  no landing checkout at $LANDING_REPO — skipping."
+    return 1
+  }
+
+  local branch
+  branch="$(git -C "$LANDING_REPO" rev-parse --abbrev-ref HEAD)"
+  [[ "$branch" == "main" ]] || {
+    echo "  landing checkout is on '$branch', not main — skipping."
+    return 1
+  }
+
+  # Tracked changes only. The landing repo carries an AGENTS.md that Next
+  # rewrites on every `next dev`, so counting untracked files would block
+  # every release.
+  [[ -z "$(git -C "$LANDING_REPO" status --porcelain --untracked-files=no)" ]] || {
+    echo "  landing checkout has uncommitted changes — skipping."
+    return 1
+  }
+
+  [[ "$(git -C "$LANDING_REPO" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 0)" == "0" ]] || {
+    echo "  landing checkout has unpushed commits — skipping."
+    return 1
+  }
+
+  (cd "$LANDING_REPO" && npm run build >/dev/null) || {
+    echo "  the landing build failed — skipping the upload."
+    return 1
+  }
+  (cd "$LANDING_REPO" && npx wrangler pages deploy out \
+    --project-name=talkify --branch=main >/dev/null) || {
+    echo "  wrangler could not upload the build."
+    return 1
+  }
+
+  echo "  usetalkify.app rebuilt; it now names $VERSION"
+  return 0
+}
+
+if ! deploy_landing; then
+  echo "  usetalkify.app keeps naming the previous version until it is"
+  echo "  redeployed. Its Download button still resolves to this release."
+  echo "  To do it by hand:"
+  echo "    cd $LANDING_REPO && npm run build"
+  echo "    npx wrangler pages deploy out --project-name=talkify --branch=main"
 fi
 
 step "Done"
