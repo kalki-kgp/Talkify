@@ -60,6 +60,43 @@ file immediately.
   and dictation inserts your raw text exactly as upstream does — nothing breaks, the
   feature is simply inert.
 
+### Installing this fork
+
+Download [**Talkify-personalization.dmg**](https://github.com/kalki-kgp/Talkify/releases/latest),
+open it, and drag Talkify to Applications.
+
+**macOS will refuse to open it the first time.** You will see *"Apple could not
+verify Talkify is free of malware."* That is accurate and worth reading carefully
+before you continue.
+
+This build is signed with a self-signed certificate and **is not notarized** — I do
+not have a paid Apple Developer ID, so Apple has never scanned this binary. macOS
+cannot tell you it is safe, because nobody has checked. To open it anyway:
+
+1. **System Settings → Privacy & Security**
+2. Scroll to the message about Talkify being blocked, and click **Open Anyway**
+
+Talkify then asks for **Accessibility** and **Input Monitoring**. Be clear-eyed
+about what you are granting: those permissions let an application observe your
+keystrokes and read the contents of text fields in other apps. Talkify needs them
+to see its trigger key and to place text where your cursor is, and it makes no
+network requests at all — but you are taking my word for that, from an unnotarized
+binary.
+
+**If that trade sounds bad, it should — build it yourself instead.** It takes one
+command, and then the app running on your machine is one you compiled from source
+you can read:
+
+```bash
+git clone https://github.com/kalki-kgp/Talkify.git
+cd Talkify
+./scripts/create-signing-identity.sh   # once
+./scripts/build-local-app.sh
+cp -R dist/Talkify.app /Applications/
+```
+
+A notarized build will replace this the moment I have a Developer ID.
+
 ### Building this fork
 
 `scripts/build-local-app.sh` builds and packages the app with only the Command Line
