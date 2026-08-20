@@ -78,7 +78,22 @@ Three details follow from that:
   shape and the `Info.plist` is linked into the test binary as a
   `__TEXT,__info_plist` section.
 
-All 109 tests run and pass this way.
+Two suites cannot pass this way, and both fail for the same reason rather than
+because anything is broken:
+
+| Suite | Why |
+| --- | --- |
+| `HUDShaderWarmUpTests` | `ShaderLibrary` resolves against `Bundle.main`, which here is the test executable. `default.metallib` sits in the app bundle, so every function reads as "Unknown Metal function". |
+| `HUDRenderTests.theStatusGhostFillsWithProgress` | `NSImage(named: "MenuBarIcon")` reads `Assets.car`, in the app bundle for the same reason. |
+
+The `Info.plist` is linked into the test binary as a `__TEXT,__info_plist`
+section so `Bundle.main` has the right identity, but `Assets.car` and
+`default.metallib` are files rather than sections and cannot be linked in the
+same way. Both are present and correct in `dist/Talkify.app`; verify with
+`strings dist/Talkify.app/Contents/Resources/Assets.car | grep MenuBarIcon`.
+Running them for real needs Xcode's `xctest` host.
+
+Everything else runs and passes: 395 of 397 tests.
 
 ## Signing and permissions
 
