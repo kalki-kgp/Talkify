@@ -12,43 +12,42 @@
   <img src="https://github.com/tornikegomareli/Talkify/actions/workflows/ci.yml/badge.svg" />
 </p>
 
-> **This is a fork.** Talkify is [Tornike Gomareli's](https://github.com/tornikegomareli/Talkify)
-> — a menu-bar dictation app for macOS that is genuinely lovely to use. This fork
-> adds the personalization layer: it learns your words and your writing style, so
-> what lands in the field is what you would have typed. Everything below the next
-> section is upstream's, unchanged.
+> **This is a fork.** Talkify is [Tornike Gomareli's](https://github.com/tornikegomareli/Talkify),
+> a menu-bar dictation app for macOS. This fork adds the personalization layer, so
+> what lands in the field is closer to what you would have typed. Everything below
+> the next section is upstream's, unchanged.
 
 ## What this fork adds
 
 Free dictation gets the words down. Paid dictation gets *your* words down. That gap
-is two features, and both of them are here.
+is two features, and both are here.
 
 **A vocabulary that sticks.** Product names, your teammates' names, the acronyms
 only your team uses. Add them once in **Settings → Vocabulary** and the recognizer
-stops mangling them. Terms are applied while the session is warming up, not on the
-keypress, so they cost you nothing at the moment you are waiting to speak.
+stops mangling them. Terms load while the session warms up rather than on the
+keypress, so they cost nothing at the moment you are waiting to speak.
 
 **Cleanup that sounds like you.** *"um so I was thinking we could uh ship it friday"*
-lands as a sentence. Filler goes, punctuation arrives, and per-app style rules mean
-Slack reads casual while email reads sharp. Runs on Apple's on-device model between
-the recognizer finishing and the text being inserted — with a deadline, so a slow
-pass inserts your raw text rather than making you wait.
+lands as a sentence. Filler goes, punctuation arrives, and per-app rules let Slack
+read casual while email reads sharp. It runs on Apple's on-device model between the
+recognizer finishing and the text being inserted. There is a deadline on it, so a
+slow pass inserts your raw text instead of making you wait.
 
-**It learns from your edits.** When you fix something Talkify inserted, it notices.
-Those corrections are distilled into short, readable style rules and vocabulary
-suggestions that you approve or reject one by one — nothing is ever applied behind
-your back. The raw text is dropped the moment it has been distilled.
+**It learns from your edits.** Fix something Talkify inserted and it notices. Those
+corrections become short style rules and vocabulary suggestions that you approve or
+reject one at a time. Nothing is applied behind your back, and the raw text is
+dropped once it has been distilled.
 
 **Diagnostics, so "nothing happened" has an answer.** Permission state and what the
 last dictation actually did, in **Settings → Diagnostics**.
 
 ### Privacy, specifically
 
-The additions keep upstream's rule: **no network requests, no audio stored, no
-transcript history.** Cleanup uses Apple's on-device `FoundationModels` — nothing is
-sent anywhere. The one exception is deliberate and bounded: to learn from your edits,
-a capped buffer of at most 20 correction pairs is kept in
-`~/Library/Application Support/Talkify/`. It is distilled into style rules and
+The additions keep upstream's rule: no network requests, no audio stored, no
+transcript history. Cleanup uses Apple's on-device `FoundationModels`, so nothing is
+sent anywhere. One exception is deliberate and bounded. To learn from your edits, a
+buffer of at most 20 correction pairs is kept in
+`~/Library/Application Support/Talkify/`. It is distilled into style rules and then
 cleared, and **Settings → Cleanup → Forget captured corrections** erases it and its
 file immediately.
 
@@ -57,8 +56,8 @@ file immediately.
 - Vocabulary and Diagnostics work on any Mac that runs Talkify.
 - **Cleanup requires Apple Intelligence to be enabled** (System Settings → Apple
   Intelligence & Siri). Without it, cleanup reports itself unavailable in Settings
-  and dictation inserts your raw text exactly as upstream does — nothing breaks, the
-  feature is simply inert.
+  and dictation inserts your raw text exactly as upstream does. Nothing breaks. The
+  feature is just inert.
 
 ### Installing this fork
 
@@ -66,26 +65,24 @@ Download [**Talkify-personalization.dmg**](https://github.com/kalki-kgp/Talkify/
 open it, and drag Talkify to Applications.
 
 **macOS will refuse to open it the first time.** You will see *"Apple could not
-verify Talkify is free of malware."* That is accurate and worth reading carefully
-before you continue.
+verify Talkify is free of malware."* That warning is accurate. Read it before you
+click past it.
 
-This build is signed with a self-signed certificate and **is not notarized** — I do
-not have a paid Apple Developer ID, so Apple has never scanned this binary. macOS
+This build is signed with a self-signed certificate and is not notarized. I do not
+have a paid Apple Developer ID, so Apple has never scanned this binary. macOS
 cannot tell you it is safe, because nobody has checked. To open it anyway:
 
 1. **System Settings → Privacy & Security**
 2. Scroll to the message about Talkify being blocked, and click **Open Anyway**
 
-Talkify then asks for **Accessibility** and **Input Monitoring**. Be clear-eyed
-about what you are granting: those permissions let an application observe your
-keystrokes and read the contents of text fields in other apps. Talkify needs them
-to see its trigger key and to place text where your cursor is, and it makes no
-network requests at all — but you are taking my word for that, from an unnotarized
-binary.
+Talkify then asks for **Accessibility**. That one permission lets an application
+watch your keystrokes and read text fields in other apps. Talkify needs it to see
+its trigger key and to put text where your cursor is. It makes no network requests
+at all, but you are taking my word for that, from a binary nobody has scanned.
 
-**If that trade sounds bad, it should — build it yourself instead.** It takes one
-command, and then the app running on your machine is one you compiled from source
-you can read:
+**If that trade sounds bad, it should.** Build it yourself instead. It takes one
+command, and then the app on your machine is one you compiled from source you can
+read:
 
 ```bash
 git clone https://github.com/kalki-kgp/Talkify.git
@@ -100,7 +97,7 @@ A notarized build will replace this the moment I have a Developer ID.
 ### Building this fork
 
 `scripts/build-local-app.sh` builds and packages the app with only the Command Line
-Tools, no 15 GB Xcode install — see [`docs/local-build.md`](docs/local-build.md).
+Tools, no 15 GB Xcode install. See [`docs/local-build.md`](docs/local-build.md).
 Run `scripts/create-signing-identity.sh` once first, or macOS will quietly drop your
 Accessibility grant on every rebuild.
 
