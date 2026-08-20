@@ -126,8 +126,8 @@ otherwise. Neither needs an Apple Developer account. Two consequences:
 | Variable | Default |
 | --- | --- |
 | `TALKIFY_REFERENCE_APP` | `/Applications/Talkify.app` |
-| `TALKIFY_VERSION` | `0.3.3-local` |
-| `TALKIFY_BUILD` | `120` |
+| `TALKIFY_VERSION` | `0.6.0-local` |
+| `TALKIFY_BUILD` | `140` |
 | `TALKIFY_BUNDLE_ID` | `com.tgomareli.Talkify` |
 | `TALKIFY_CONFIGURATION` | `release` |
 | `TALKIFY_SIGN_IDENTITY` | `-` (ad-hoc) |
