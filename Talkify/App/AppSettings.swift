@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -14,6 +15,7 @@ final class AppSettings {
   private enum Keys {
     static let soundSet = "dictationSoundSet"
     static let soundsEnabled = "dictationSoundsEnabled"
+    static let duckOtherAudio = "duckOtherAudioWhileDictating"
     static let soundVolume = "dictationSoundVolume"
     static let voiceVisual = "hudVoiceVisual"
     static let waveformStyle = "hudWaveformStyle"
@@ -32,6 +34,11 @@ final class AppSettings {
     static let cleanupPacing = "cleanupPacing"
     static let cleanupDeadline = "cleanupDeadlineMilliseconds"
     static let cleanupLearning = "cleanupLearningEnabled"
+    static let transcriptDestination = "transcriptDestination"
+    static let transcriptFolder = "transcriptFolder"
+    static let insertionDestination = "dictationInsertionDestination"
+    static let historyEnabled = "dictationHistoryEnabled"
+    static let historyFolder = "dictationHistoryFolder"
   }
 
   @ObservationIgnored
@@ -39,6 +46,13 @@ final class AppSettings {
 
   var soundSet: DictationSoundSet {
     didSet { defaults.set(soundSet.rawValue, forKey: Keys.soundSet) }
+  }
+
+  /// Lowers the system output while a session listens. Off by default: it
+  /// moves a system-wide control, which is not something to start doing to
+  /// someone who did not ask for it.
+  var duckOtherAudioWhileDictating: Bool {
+    didSet { defaults.set(duckOtherAudioWhileDictating, forKey: Keys.duckOtherAudio) }
   }
 
   var dictationSoundsEnabled: Bool {
@@ -53,6 +67,41 @@ final class AppSettings {
       storedDictationSoundVolume = DictationSoundSettings.normalizedVolume(newValue)
       defaults.set(storedDictationSoundVolume, forKey: Keys.soundVolume)
     }
+  }
+
+  /// Where a Drop Transcription writes its transcript. The chosen folder is
+  /// kept even while the pick is `besideSource`, so switching back and forth
+  /// does not lose it.
+  var transcriptDestination: TranscriptDestination.Preference {
+    didSet { defaults.set(transcriptDestination.rawValue, forKey: Keys.transcriptDestination) }
+  }
+
+  var transcriptFolder: URL? {
+    didSet { defaults.set(transcriptFolder?.path(percentEncoded: false), forKey: Keys.transcriptFolder) }
+  }
+
+  /// Where a finished Direct Dictation session's text goes: the paste that
+  /// always happened, the clipboard alone, or both.
+  var insertionDestination: InsertionDestination {
+    didSet { defaults.set(insertionDestination.rawValue, forKey: Keys.insertionDestination) }
+  }
+
+  /// Whether finished dictation text is saved to the history folder. Off by
+  /// default: persisting no recognized text is the standing privacy stance,
+  /// and only the user turns this on.
+  var dictationHistoryEnabled: Bool {
+    didSet { defaults.set(dictationHistoryEnabled, forKey: Keys.historyEnabled) }
+  }
+
+  /// The history folder, kept even while history is off so turning it back
+  /// on returns to the same place. Nil means the default `~/Documents/Talkify/`.
+  var dictationHistoryFolder: URL? {
+    didSet { defaults.set(dictationHistoryFolder?.path(percentEncoded: false), forKey: Keys.historyFolder) }
+  }
+
+  /// The folder history writes to right now: the user's pick, or the default.
+  var resolvedHistoryFolder: URL {
+    dictationHistoryFolder ?? DictationHistoryStore.defaultFolderURL
   }
 
   var voiceVisual: HUDVoiceVisualStyle {
@@ -132,6 +181,26 @@ final class AppSettings {
 
   /// True once a second language is chosen. The second trigger is ignored
   /// while this is false, so an unused binding cannot start a session.
+  /// The labels a split Drop Target shows, or empty when one language is
+  /// configured and the target stays whole.
+  var languageTagsForDrop: [String] {
+    guard isSecondLanguageEnabled else { return [] }
+    let primary = recognitionLocaleIdentifier.isEmpty
+      ? Locale.current.identifier
+      : recognitionLocaleIdentifier
+    return [primary, secondaryRecognitionLocaleIdentifier]
+      .map { SpeechLanguageCatalog.tag(for: Locale(identifier: $0)) }
+  }
+
+  /// Which language a drop chose. Index 1 is the second language and only
+  /// exists while the target is split; anything else is the primary.
+  func localeIdentifierForDrop(languageIndex: Int) -> String {
+    guard languageIndex == 1, isSecondLanguageEnabled else {
+      return recognitionLocaleIdentifier
+    }
+    return secondaryRecognitionLocaleIdentifier
+  }
+
   var isSecondLanguageEnabled: Bool {
     !secondaryRecognitionLocaleIdentifier.isEmpty
   }
@@ -177,8 +246,14 @@ final class AppSettings {
     self.defaults = defaults
     soundSet = Self.stored(in: defaults, key: Keys.soundSet) ?? .synth8
     dictationSoundsEnabled = defaults.object(forKey: Keys.soundsEnabled) as? Bool ?? true
+    duckOtherAudioWhileDictating = defaults.object(forKey: Keys.duckOtherAudio) as? Bool ?? false
     let storedSoundVolume = defaults.object(forKey: Keys.soundVolume) as? Double ?? 0.5
     storedDictationSoundVolume = DictationSoundSettings.normalizedVolume(storedSoundVolume)
+    transcriptDestination = Self.stored(in: defaults, key: Keys.transcriptDestination) ?? .besideSource
+    transcriptFolder = (defaults.string(forKey: Keys.transcriptFolder)).map { URL(filePath: $0) }
+    insertionDestination = Self.stored(in: defaults, key: Keys.insertionDestination) ?? .insert
+    dictationHistoryEnabled = defaults.object(forKey: Keys.historyEnabled) as? Bool ?? false
+    dictationHistoryFolder = (defaults.string(forKey: Keys.historyFolder)).map { URL(filePath: $0) }
     voiceVisual = Self.stored(in: defaults, key: Keys.voiceVisual) ?? .waveform
     waveformStyle = Self.stored(in: defaults, key: Keys.waveformStyle) ?? .chartLine
     revealStyle = Self.stored(in: defaults, key: Keys.revealStyle) ?? .slide
@@ -235,6 +310,12 @@ final class AppSettings {
 /// this value until its end and paste sounds have played.
 struct DictationSessionSettings: Equatable {
   let sounds: DictationSoundSettings
+  let insertionDestination: InsertionDestination
+  let historyEnabled: Bool
+  let historyFolder: URL
+  /// Captured with everything else: a session that started while ducking was
+  /// on has to restore the volume even if the toggle flips mid-session.
+  let ducksOtherAudio: Bool
   let voiceVisual: HUDVoiceVisualStyle
   let waveformStyle: HUDWaveformStyle
   let revealStyle: HUDRevealStyle
@@ -243,6 +324,14 @@ struct DictationSessionSettings: Equatable {
   let glowCenter: HUDGlowCenterStyle
   let hudMetrics: HUDMetrics
 
+  /// The colour a Drop Transcription wears — on the HUD's target and card, and
+  /// on the status ghost while a file job fills it. Edge Glow lends its
+  /// palette's own hue; every other visual keeps Talkify blue. One definition,
+  /// so the shape and the menu bar can never drift apart (CONTEXT.md).
+  var dropAccent: NSColor {
+    voiceVisual == .glow ? glowPalette.statusAccent : SettingsTheme.accentColor
+  }
+
   @MainActor
   init(settings: AppSettings) {
     sounds = DictationSoundSettings(
@@ -250,6 +339,10 @@ struct DictationSessionSettings: Equatable {
       isEnabled: settings.dictationSoundsEnabled,
       volume: settings.dictationSoundVolume
     )
+    insertionDestination = settings.insertionDestination
+    historyEnabled = settings.dictationHistoryEnabled
+    historyFolder = settings.resolvedHistoryFolder
+    ducksOtherAudio = settings.duckOtherAudioWhileDictating
     voiceVisual = settings.voiceVisual
     waveformStyle = settings.waveformStyle
     revealStyle = settings.revealStyle

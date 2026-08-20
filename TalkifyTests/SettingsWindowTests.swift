@@ -8,7 +8,7 @@ struct SettingsWindowTests {
     let settings = AppSettings.previewStore()
     let controller = SettingsWindowController(
       settings: settings,
-      sounds: DictationHUDSounds(),
+      sounds: HUDSounds(),
       runtimeState: SettingsRuntimeState(),
       usageTracker: UsageTracker(store: UsageStore(
         fileURL: FileManager.default.temporaryDirectory
@@ -42,8 +42,8 @@ struct SettingsWindowTests {
 
   @Test func settingsSectionsStayFocusedOnImplementedFeatures() {
     let expected: [SettingsSection] = [
-      .appearance, .sounds, .readAloud, .language, .vocabulary, .cleanup, .shortcuts, .updates,
-      .insights, .diagnostics,
+      .appearance, .sounds, .dictation, .dropTranscription, .readAloud, .language,
+      .vocabulary, .cleanup, .shortcuts, .updates, .insights, .diagnostics,
     ]
     #expect(SettingsSection.allCases == expected)
     #expect(SettingsSectionGroup.settings.sections == expected)

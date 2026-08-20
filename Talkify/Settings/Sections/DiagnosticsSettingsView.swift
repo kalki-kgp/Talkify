@@ -55,12 +55,12 @@ struct DiagnosticsSettingsView: View {
             }
           } else {
             SettingsRow(
-              title: report.outcome.title,
+              title: title(for: report.outcome),
               description: outcomeDescription(for: report)
             ) {
               statusText(
-                report.outcome == .nothingToInsert ? "Empty" : "Done",
-                isGood: report.outcome != .nothingToInsert
+                report.outcome == .unavailable ? "Failed" : "Done",
+                isGood: report.outcome != .unavailable
               )
             }
           }
@@ -103,10 +103,31 @@ struct DiagnosticsSettingsView: View {
     )
 
     var description = parts.joined(separator: ", ") + "."
-    if let detail = report.outcome.detail {
+    if let detail = detail(for: report.outcome) {
       description += " " + detail
     }
     return description
+  }
+
+  /// The outcome enum is upstream's and carries no prose, so the wording
+  /// lives here, where it is a presentation concern rather than a value the
+  /// insertion service has to keep in sync.
+  private func title(for outcome: TextInsertionService.InsertionOutcome) -> String {
+    switch outcome {
+    case .inserted: "Inserted"
+    case .copiedToClipboard: "Left on the clipboard"
+    case .unavailable: "Nowhere to put it"
+    }
+  }
+
+  private func detail(for outcome: TextInsertionService.InsertionOutcome) -> String? {
+    switch outcome {
+    case .inserted: nil
+    case .copiedToClipboard:
+      "The text is on the clipboard, ready to paste."
+    case .unavailable:
+      "Neither the field nor the clipboard could take it."
+    }
   }
 
   private func permissionRow(_ title: String, granted: Bool, need: String) -> some View {

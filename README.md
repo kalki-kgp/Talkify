@@ -43,13 +43,18 @@ last dictation actually did, in **Settings → Diagnostics**.
 
 ### Privacy, specifically
 
-The additions keep upstream's rule: no network requests, no audio stored, no
-transcript history. Cleanup uses Apple's on-device `FoundationModels`, so nothing is
-sent anywhere. One exception is deliberate and bounded. To learn from your edits, a
-buffer of at most 20 correction pairs is kept in
-`~/Library/Application Support/Talkify/`. It is distilled into style rules and then
-cleared, and **Settings → Cleanup → Forget captured corrections** erases it and its
-file immediately.
+Nothing leaves your machine. Cleanup uses Apple's on-device `FoundationModels`,
+and the app makes no network requests at all.
+
+Two things are written to disk, and both are worth knowing about:
+
+- To learn from your edits, a buffer of at most 20 correction pairs is kept in
+  `~/Library/Application Support/Talkify/`. It is distilled into style rules and
+  then cleared. **Settings → Cleanup → Forget captured corrections** erases it and
+  its file immediately.
+- Upstream's transcription history is **off by default**. Turn it on and each
+  session appends to a dated plain-text file under `~/Documents/Talkify/`, which
+  is yours to read or delete. Leave it off and nothing is written.
 
 ### Requirements for the additions
 
@@ -111,13 +116,15 @@ Accessibility grant on every rebuild.
 </p>
 
 <p align="center">
-  <img src="docs/assets/settings-appearance.jpg" width="45%" alt="Settings — Appearance, with a live HUD preview" />
-  <img src="docs/assets/settings-insights.jpg" width="45%" alt="Settings — Insights, computed and stored locally" />
+  <img src="docs/assets/settings-appearance.jpg" width="45%" alt="Settings: Appearance, with a live HUD preview" />
+  <img src="docs/assets/settings-insights.jpg" width="45%" alt="Settings: Insights, computed and stored locally" />
 </p>
 
 ## Privacy
 
 Everything is on-device: Apple's `SpeechAnalyzer`/`SpeechTranscriber` for recognition, `AVSpeechSynthesizer` for Read Aloud. Talkify makes no network requests, stores no audio, and keeps no history beyond the local usage metrics you can see in Insights.
+
+One thing worth knowing: dictated text is inserted by pasting it, so it passes through the system clipboard for up to about half a second before your previous clipboard is put back. A clipboard manager or Universal Clipboard can see it during that window.
 
 ## Requirements
 
@@ -166,11 +173,32 @@ xcodebuild test -project Talkify.xcodeproj -scheme Talkify -destination 'platfor
 | Dictate | Hold **fn**, speak, release |
 | Hands-free session | Quick-tap **fn**, speak, tap again to finish |
 | Dictate in your second language | Hold **right ⌥** instead |
+| Transcribe a file | Drag audio or video at the notch and drop it |
 | Cancel mid-session | **Esc** |
 | Read selected text aloud | **⌥ ⎋** (toggles; also in the menu) |
 | Everything else | Menu bar ghost → Settings |
 
 The trigger and the Read Aloud shortcut are rebindable in **Settings → Shortcuts**
+
+## Drop a file on the notch
+
+<p align="center">
+  <img src="docs/assets/drop-transcription.gif" width="90%" alt="A transcript card in the notch being dragged out and dropped into another app" />
+</p>
+
+Drag an audio or video file to the top of the screen and the island opens to
+take it. It transcribes in the background, so **fn** keeps working, and the menu
+bar ghost shows progress.
+
+When it finishes the island comes back holding the transcript. Drag it where you
+want it: a folder writes the `.txt`, a text field takes the words. Click it to
+copy the text instead. Leave it and after five seconds it saves next to the
+source file, or into a folder you set in **Settings → Drop Transcription**.
+Hovering pauses that timer.
+
+With a second dictation language configured, the target splits in two and the
+half you drop on picks the language. **Transcribe File…** in the menu does the
+same with a picker.
 
 ## Two languages, two keys
 
@@ -194,19 +222,31 @@ its model once, with progress shown in Settings and in the notch.
 
 Code is organized into folders, callbacks only flow one way from the main wiring point, and a pure reducer handles the state.
 
-- `App/` — composition root, settings store, status item
-- `Input/` — the global key event tap and recorded bindings
-- `Dictation/` — the session machine (`DictationSessionMachine`, a pure tested reducer) and the speech/insertion services
-- `HUD/` — geometry seams, the shell, the voice visuals, and all Metal shaders
+- `App/`: composition root, settings store, status item
+- `Input/`: the global key event tap and recorded bindings
+- `Dictation/`: the session machine (`DictationSessionMachine`, a pure tested reducer), the speech/insertion services, and the HUD surface and voice visuals only dictation draws
+- `DropTranscription/`: the drag gesture, the file transcription service, where a transcript is staged and lands, and its own HUD surfaces
+- `CoreHUD/`: what both features share: `HUDStage` owns the single panel and decides who holds the shape, plus the geometry seams and Metal shaders
 - `ReadAloud/`, `Settings/`, `Insights/`
 
-`CONTEXT.md` is the domain doc, decisions live in `docs/adr/`
+`CONTEXT.md` is the domain doc, decisions live in `docs/adr/`, and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) is the contract for changing any of it
 
 ## Roadmap
 
-- **Live Captions & Meeting Transcripts** — ephemeral captions from a selected app's audio (Chrome, YouTube, meeting apps), and the saved, timestamped transcript as a separate action. The domain design already lives in `CONTEXT.md`; the recognition pipeline is ready for non-microphone audio.
-- **Text cleanup** — optional on-device polishing of dictated text (fillers, punctuation) once the raw-insertion core is benchmarked. Version 1 deliberately inserts exactly what you said. *(Built in this fork — see [What this fork adds](#what-this-fork-adds).)*
-- **Snippets** — saved text blocks inserted by a spoken trigger word: say your trigger mid-dictation and the whole block lands instead.
+- **Live Captions & Meeting Transcripts**. Ephemeral captions from a selected app's audio (Chrome, YouTube, meeting apps), and the saved, timestamped transcript as a separate action. The domain design already lives in `CONTEXT.md`; the recognition pipeline is ready for non-microphone audio.
+- **Text cleanup**. Optional on-device polishing of dictated text (fillers, punctuation) once the raw-insertion core is benchmarked. Version 1 deliberately inserts exactly what you said. *(Built in this fork, see [What this fork adds](#what-this-fork-adds).)*
+- **Snippets**. Saved text blocks inserted by a spoken trigger word: say your trigger mid-dictation and the whole block lands instead.
+
+## Contributing
+
+Read [**CONTRIBUTING.md**](CONTRIBUTING.md) first. It covers the issue-first
+flow, branch and pull request naming, code style, the AI policy, and what a bug
+report needs to contain to be actionable.
+
+Start from an issue. A pull request that arrives without one behind it may be
+closed, however good the code is, because design belongs in the issue where it is
+still cheap to change.
 
 ## License
 [MIT](LICENSE)

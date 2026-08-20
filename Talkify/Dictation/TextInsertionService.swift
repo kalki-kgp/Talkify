@@ -1,84 +1,86 @@
 import AppKit
 import ApplicationServices
+import os
 
 @MainActor
 final class TextInsertionService {
+  /// The terminal delivery state of one finalized Direct Dictation result.
+  enum InsertionOutcome: Equatable, Sendable {
+    /// The text was staged and pasted, or empty input completed as a no-op.
+    case inserted
+    /// Target delivery was unavailable, so the text was left for manual paste.
+    case copiedToClipboard
+    /// Neither target insertion nor a safe clipboard fallback was possible.
+    case unavailable
+  }
+
+  /// Runs the sole leased pasteboard read away from the main actor.
+  ///
+  /// Apple documents no thread-safety contract for `NSPasteboard`. Background
+  /// use is accepted only to keep promised-data resolution from blocking the
+  /// main actor. The serial queue and read lease prevent same-instance overlap.
+  let clipboardReaderQueue = DispatchQueue(
+    label: "com.tgomareli.Talkify.clipboard-snapshot",
+    qos: .userInitiated
+  )
+
+  /// True from before a read is enqueued until its closure actually returns.
+  ///
+  /// A timeout never clears this lease: while AppKit remains inside a promised
+  /// data read, every later read and every write must remain excluded.
+  let clipboardReadLease = OSAllocatedUnfairLock(initialState: false)
+
   struct Target {
-    /// Nil when the application refuses to name its focused element. Chromium
-    /// does this for everything drawn by the renderer — a YouTube search box, a
-    /// Gmail compose window — and it cannot be talked out of it:
-    /// `AXManualAccessibility` answers "attribute unsupported" and
-    /// `AXEnhancedUserInterface` answers "not implemented".
-    ///
-    /// A nil element is not a dead end, because the paste route never needed
-    /// the element. It needs the right application to be frontmost, and that is
-    /// knowable.
     fileprivate let element: AXUIElement?
     fileprivate let processIdentifier: pid_t
-    /// Readable outside insertion because Text Cleanup scopes its style rules
-    /// by application — the app about to receive the text is the app whose
-    /// rules apply.
-    let bundleIdentifier: String?
 
     let isSecure: Bool
     let displayID: CGDirectDisplayID?
+    /// The application that held focus when the session began, for the
+    /// history entry to name. Resolved at capture time rather than at write
+    /// time, because by then the application may be gone.
+    let applicationName: String?
+    /// Readable outside insertion because Text Cleanup scopes its style rules
+    /// by application: the app about to receive the text is the app whose
+    /// rules apply.
+    let bundleIdentifier: String?
 
     /// False when the application would not name its focused element, which is
     /// the difference between "pasting is the only option here" and "the field
     /// was there and something else went wrong".
     var hasFocusedElement: Bool { element != nil }
 
-    var applicationName: String? {
-      NSRunningApplication(processIdentifier: processIdentifier)?.localizedName
-    }
+    /// Reaches the focused element from `TextInsertionService+Accessibility`,
+    /// which `fileprivate` would otherwise shut out.
+    var accessibilityElement: AXUIElement? { element }
 
     init(
       element: AXUIElement?,
       processIdentifier: pid_t,
-      bundleIdentifier: String? = nil,
       isSecure: Bool,
-      displayID: CGDirectDisplayID?
+      displayID: CGDirectDisplayID?,
+      applicationName: String? = nil,
+      bundleIdentifier: String? = nil
     ) {
       self.element = element
       self.processIdentifier = processIdentifier
-      self.bundleIdentifier = bundleIdentifier
       self.isSecure = isSecure
       self.displayID = displayID
+      self.applicationName = applicationName
+      self.bundleIdentifier = bundleIdentifier
     }
   }
 
-  private enum Route {
-    case accessibility
-    case paste
-  }
-
-  /// Where the text ended up. Reported in Settings, because "nothing happened"
-  /// covers four different failures and they need different answers.
-  enum Outcome: Equatable {
-    case nothingToInsert
-    case setInPlace
-    case pasted
-    case leftOnClipboard(reason: String)
-
-    var title: String {
-      switch self {
-      case .nothingToInsert: "Nothing to insert"
-      case .setInPlace: "Written straight into the field"
-      case .pasted: "Pasted"
-      case .leftOnClipboard: "Left on the clipboard"
-      }
-    }
-
-    var detail: String? {
-      switch self {
-      case let .leftOnClipboard(reason): reason
-      default: nil
-      }
-    }
-  }
-
+  /// Injectable pasteboard, focus, event, and timing boundaries for insertion.
   struct Dependencies {
     let pasteboard: NSPasteboard
+    /// Reads every pasteboard item into values that can cross back to the main actor.
+    ///
+    /// The service invokes this closure only on its serial reader queue while
+    /// holding the read lease. `nil` means the read was incomplete or failed.
+    let readClipboardItems: @Sendable () -> [ClipboardItemSnapshot]?
+    /// The total acquisition deadline shared by the first read and one reread.
+    let snapshotTimeout: Duration
     let focusedElement: @MainActor () -> AXUIElement?
     let frontmostApplication: @MainActor () -> NSRunningApplication?
     let isProcessRunning: @MainActor (pid_t) -> Bool
@@ -87,43 +89,28 @@ final class TextInsertionService {
     let waitForPasteRead: @MainActor () async -> Void
     /// The three halves of the Accessibility write, separated so the
     /// verification around them can be tested against an app that lies.
-    let isSelectedTextSettable: @MainActor (AXUIElement) -> Bool
-    let readElementValue: @MainActor (AXUIElement) -> String?
-    let setSelectedText: @MainActor (AXUIElement, String) -> Bool
-    let waitForAccessibilitySettle: @MainActor () async -> Void
+    /// See TextInsertionService+Accessibility.
+    var isSelectedTextSettable: @MainActor (AXUIElement) -> Bool = { _ in false }
+    var readElementValue: @MainActor (AXUIElement) -> String? = { _ in nil }
+    var setSelectedText: @MainActor (AXUIElement, String) -> Bool = { _, _ in false }
+    var waitForAccessibilitySettle: @MainActor () async -> Void = {}
 
-    /// The Accessibility seams default to "this field cannot be written",
-    /// which is the universal paste route and nothing else. A test that cares
-    /// about the write says so; every other one describes pasting.
-    init(
-      pasteboard: NSPasteboard,
-      focusedElement: @escaping @MainActor () -> AXUIElement?,
-      frontmostApplication: @escaping @MainActor () -> NSRunningApplication?,
-      isProcessRunning: @escaping @MainActor (pid_t) -> Bool,
-      isTargetFocused: @escaping @MainActor (Target) -> Bool,
-      postPasteShortcut: @escaping @MainActor () -> Bool,
-      waitForPasteRead: @escaping @MainActor () async -> Void,
-      isSelectedTextSettable: @escaping @MainActor (AXUIElement) -> Bool = { _ in false },
-      readElementValue: @escaping @MainActor (AXUIElement) -> String? = { _ in nil },
-      setSelectedText: @escaping @MainActor (AXUIElement, String) -> Bool = { _, _ in false },
-      waitForAccessibilitySettle: @escaping @MainActor () async -> Void = {}
-    ) {
-      self.pasteboard = pasteboard
-      self.focusedElement = focusedElement
-      self.frontmostApplication = frontmostApplication
-      self.isProcessRunning = isProcessRunning
-      self.isTargetFocused = isTargetFocused
-      self.postPasteShortcut = postPasteShortcut
-      self.waitForPasteRead = waitForPasteRead
-      self.isSelectedTextSettable = isSelectedTextSettable
-      self.readElementValue = readElementValue
-      self.setSelectedText = setSelectedText
-      self.waitForAccessibilitySettle = waitForAccessibilitySettle
-    }
-
+    /// Builds the production boundaries around the shared general pasteboard.
     static var live: Self {
-      Self(
-        pasteboard: .general,
+      let pasteboard = NSPasteboard.general
+      // Apple documents no NSPasteboard thread-safety contract. This background
+      // read is deliberate: promised data wedged the main actor in __dataForType
+      // -> CFPasteboardCopyData -> mach_msg, while same-instance overlap was
+      // proven to raise NSException "value not absent" in pasteboardItems. The
+      // serial reader queue and lease exclude every write until the read returns.
+      nonisolated(unsafe) let backgroundPasteboard = pasteboard
+
+      return Self(
+        pasteboard: pasteboard,
+        readClipboardItems: {
+          TextInsertionService.snapshot(of: backgroundPasteboard)
+        },
+        snapshotTimeout: .milliseconds(600),
         focusedElement: TextInsertionService.focusedElement,
         frontmostApplication: { NSWorkspace.shared.frontmostApplication },
         isProcessRunning: { processIdentifier in
@@ -139,40 +126,15 @@ final class TextInsertionService {
         waitForPasteRead: {
           try? await Task.sleep(for: .milliseconds(500))
         },
-        isSelectedTextSettable: { element in
-          var isSettable: DarwinBoolean = false
-          let result = AXUIElementIsAttributeSettable(
-            element,
-            kAXSelectedTextAttribute as CFString,
-            &isSettable
-          )
-          return result == .success && isSettable.boolValue
-        },
-        readElementValue: { element in
-          var value: CFTypeRef?
-          guard AXUIElementCopyAttributeValue(
-            element,
-            kAXValueAttribute as CFString,
-            &value
-          ) == .success else { return nil }
-          return value as? String
-        },
-        setSelectedText: { element, text in
-          AXUIElementSetAttributeValue(
-            element,
-            kAXSelectedTextAttribute as CFString,
-            text as CFString
-          ) == .success
-        },
-        waitForAccessibilitySettle: {
-          try? await Task.sleep(for: .milliseconds(150))
-        }
+        isSelectedTextSettable: accessibilitySeams.isSelectedTextSettable,
+        readElementValue: accessibilitySeams.readElementValue,
+        setSelectedText: accessibilitySeams.setSelectedText,
+        waitForAccessibilitySettle: accessibilitySeams.waitForAccessibilitySettle
       )
     }
   }
 
-  private let dependencies: Dependencies
-  private var routesByBundleIdentifier: [String: Route] = [:]
+  let dependencies: Dependencies
 
   init(dependencies: Dependencies = .live) {
     self.dependencies = dependencies
@@ -187,119 +149,91 @@ final class TextInsertionService {
       return Target(
         element: element,
         processIdentifier: processIdentifier,
-        bundleIdentifier: application?.bundleIdentifier,
         isSecure: isSecureTextField(element),
-        displayID: displayID(for: element)
+        displayID: displayID(for: element),
+        applicationName: application?.localizedName,
+        bundleIdentifier: application?.bundleIdentifier
       )
     }
 
-    return frontmostApplicationTarget()
-  }
-
-  /// The application in front, for when it will not say what is focused inside
-  /// it. Insertion falls back to pasting, which lands wherever the caret is.
-  ///
-  /// The cost is stated rather than hidden: with no element there is no way to
-  /// ask whether the field is secure, so the secure-field refusal cannot run
-  /// here. That is not a step backwards — before this, the text went to the
-  /// clipboard and stayed there, which leaves it lying around for longer than
-  /// pasting it does.
-  private func frontmostApplicationTarget() -> Target? {
+    // Some apps expose no focused AX element even while an editor has focus.
+    // Keep the application as the safest available focus boundary.
     guard let application = dependencies.frontmostApplication() else { return nil }
-
-    // The window is usually still readable even when its contents are not,
-    // which is enough to put the HUD on the right screen.
-    let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
-    var focusedWindow: CFTypeRef?
-    let window = AXUIElementCopyAttributeValue(
-      applicationElement,
-      kAXFocusedWindowAttribute as CFString,
-      &focusedWindow
-    ) == .success ? focusedWindow.map { $0 as! AXUIElement } : nil
-
     return Target(
       element: nil,
       processIdentifier: application.processIdentifier,
-      bundleIdentifier: application.bundleIdentifier,
       isSecure: false,
-      displayID: window.flatMap { displayID(for: $0) }
+      displayID: nil,
+      applicationName: application.localizedName,
+      bundleIdentifier: application.bundleIdentifier
     )
   }
 
-  /// Pasting is the route that works everywhere, so it is the one every
-  /// failure falls back to. The Accessibility write is tried first only where
-  /// it can be proven to have worked, because it leaves the clipboard alone
-  /// and does not fire the receiving app's paste handling.
-  @discardableResult
-  func insert(_ text: String, into target: Target?) async -> Outcome {
-    guard !text.isEmpty else { return .nothingToInsert }
+  /// Delivers finalized text to its captured target, the clipboard, or both.
+  ///
+  /// - Parameters:
+  ///   - text: The finalized text to deliver.
+  ///   - target: The focus boundary captured when Direct Dictation began.
+  ///   - destination: Where the session's settings say the text goes.
+  /// - Returns: The terminal delivery outcome used by the session controller.
+  func insert(
+    _ text: String,
+    into target: Target?,
+    destination: InsertionDestination = .insert
+  ) async -> InsertionOutcome {
+    guard !text.isEmpty else { return .inserted }
+    guard destination != .clipboardOnly else {
+      return copyToClipboard(text)
+    }
     guard let target else {
-      copyToClipboard(text)
-      return .leftOnClipboard(reason: "No application was in front to insert into.")
+      return copyToClipboard(text)
     }
 
     guard dependencies.isProcessRunning(target.processIdentifier) else {
-      copyToClipboard(text)
-      return .leftOnClipboard(reason: "The application quit during the session.")
+      return copyToClipboard(text)
     }
 
-    let route = target.bundleIdentifier.flatMap { routesByBundleIdentifier[$0] }
-    DictationLog.insertion.notice(
-      """
-      route: remembered=\(String(describing: route), privacy: .public) \
-      element=\(target.element != nil, privacy: .public)
-      """
-    )
-    if route != .paste, await insertThroughAccessibility(text, target: target) {
-      remember(.accessibility, for: target.bundleIdentifier)
-      return .setInPlace
+    guard dependencies.isTargetFocused(target) else {
+      return copyToClipboard(text)
     }
-
-    // Only a real element proves anything about the route. An application that
-    // hid its focused element this once may well expose the next field, and
-    // one refusal must not condemn every field it owns to pasting.
-    if target.element != nil {
-      remember(.paste, for: target.bundleIdentifier)
+    // Writing straight into the field never touches the clipboard, which
+    // closes the window a clipboard manager can read the text in. Only for
+    // plain .insert: .both is a request to leave the text on the clipboard,
+    // and this route never puts it there. See TextInsertionService+Accessibility.
+    if destination == .insert, await insertThroughAccessibility(text, target: target) {
+      return .inserted
     }
-
-    let stillFocused = dependencies.isTargetFocused(target)
-    DictationLog.insertion.notice("stillFocused: \(stillFocused, privacy: .public)")
-    guard stillFocused else {
-      copyToClipboard(text)
-      return .leftOnClipboard(
-        reason: target.element == nil
-          ? "\(target.applicationName ?? "The application") was no longer in front."
-          : "The field that was focused when the session began no longer is."
-      )
+    if destination == .both {
+      return await pasteLeavingClipboard(text, into: target)
     }
-    await pasteAndRestoreClipboard(text, into: target)
-    return .pasted
+    return await pasteAndRestoreClipboard(text, into: target)
   }
 
-  /// The whole contents of a target field, or nil when it cannot be read.
+  /// An AX attribute read as an element.
   ///
-  /// Strictly read-only, and nil is an ordinary answer: plenty of fields —
-  /// anything drawn rather than built from AX controls, and most of what a
-  /// paste route was needed for — expose no value at all. Text Cleanup uses
-  /// this to notice corrections, and treats nil as "no signal from this app"
-  /// rather than as a failure.
-  func readValue(of target: Target) -> String? {
-    guard let element = target.element else { return nil }
-    return dependencies.readElementValue(element)
-  }
-
-  private static func focusedElement() -> AXUIElement? {
-    let systemWideElement = AXUIElementCreateSystemWide()
+  /// `.success` says the attribute was read, not that it holds the type its
+  /// name implies, so the type is checked before the cast. CFTypeRef has no
+  /// meaningful `as?`, which is why this is a type-ID check rather than a
+  /// conditional cast.
+  private static func element(
+    _ owner: AXUIElement,
+    _ attribute: String
+  ) -> AXUIElement? {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(
-      systemWideElement,
-      kAXFocusedUIElementAttribute as CFString,
+      owner,
+      attribute as CFString,
       &value
     ) == .success,
-    let value else {
+    let value,
+    CFGetTypeID(value) == AXUIElementGetTypeID() else {
       return nil
     }
     return (value as! AXUIElement)
+  }
+
+  private static func focusedElement() -> AXUIElement? {
+    element(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute)
   }
 
   private func isSecureTextField(_ element: AXUIElement) -> Bool {
@@ -335,17 +269,7 @@ final class TextInsertionService {
   }
 
   private func window(for element: AXUIElement) -> AXUIElement? {
-    var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(
-      element,
-      kAXWindowAttribute as CFString,
-      &value
-    ) == .success,
-    let value else {
-      return nil
-    }
-
-    return (value as! AXUIElement)
+    Self.element(element, kAXWindowAttribute)
   }
 
   private func frame(of element: AXUIElement) -> CGRect? {
@@ -379,53 +303,6 @@ final class TextInsertionService {
     return CGRect(origin: position, size: size)
   }
 
-  /// Writes into the field, and returns whether the text is actually in it.
-  ///
-  /// The distinction is the whole point. Chromium and Electron accept this
-  /// write, answer `.success`, and drop it on the floor — a YouTube search box
-  /// and a terminal inside Cursor both do. Taking that answer at face value
-  /// meant reporting the text as delivered while nothing appeared anywhere, and
-  /// never falling back to the paste that would have worked.
-  ///
-  /// So success now means observed, not reported.
-  private func insertThroughAccessibility(_ text: String, target: Target) async -> Bool {
-    guard let element = target.element else { return false }
-    guard dependencies.isSelectedTextSettable(element) else { return false }
-
-    // Nothing is written into a field that cannot be read back, because the
-    // result could not be told apart from the silent drop above. Pasting is no
-    // more verifiable, but it does not quietly do nothing.
-    guard let before = dependencies.readElementValue(element) else {
-      DictationLog.insertion.notice("ax: field cannot be read back, not risking a silent write")
-      return false
-    }
-
-    guard dependencies.setSelectedText(element, text) else {
-      DictationLog.insertion.notice("ax: write refused")
-      return false
-    }
-
-    if dependencies.readElementValue(element) != before { return true }
-
-    // One unchanged read is not proof: a renderer can answer before it has
-    // applied the write. A second, after a beat, is — and this only costs
-    // anything on the path that is already failing.
-    await dependencies.waitForAccessibilitySettle()
-    let landed = dependencies.readElementValue(element) != before
-    DictationLog.insertion.notice("ax: verified=\(landed, privacy: .public)")
-    return landed
-  }
-
-  private func remember(_ route: Route, for bundleIdentifier: String?) {
-    guard let bundleIdentifier else { return }
-    routesByBundleIdentifier[bundleIdentifier] = route
-  }
-
-  /// Whether the paste is still going where it was meant to go.
-  ///
-  /// With an element, that means the very same field. Without one, it means the
-  /// same application is still in front — which is the whole of what a
-  /// synthesized ⌘V depends on, since the keystroke goes to whoever has focus.
   private static func isStillFocused(_ target: Target) -> Bool {
     guard let targetElement = target.element else {
       return NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -447,43 +324,45 @@ final class TextInsertionService {
     return CFEqual(value, targetElement)
   }
 
-  private func pasteAndRestoreClipboard(_ text: String, into target: Target) async {
-    let pasteboard = dependencies.pasteboard
-    let sourceItems = pasteboard.pasteboardItems ?? []
-    var savedItems: [NSPasteboardItem] = []
-    savedItems.reserveCapacity(sourceItems.count)
+  /// Stages, pastes, and conditionally restores one finalized result.
+  ///
+  /// - Parameters:
+  ///   - text: The finalized text to insert.
+  ///   - target: The validated focus boundary that should receive the paste.
+  /// - Returns: The terminal delivery outcome after all safe fallbacks.
+  private func pasteAndRestoreClipboard(
+    _ text: String,
+    into target: Target
+  ) async -> InsertionOutcome {
+    let acquisition = await snapshotClipboardItems()
+    let savedItems: [ClipboardItemSnapshot]
+    let acceptedChangeCount: Int
 
-    for sourceItem in sourceItems {
-      let savedItem = NSPasteboardItem()
-      for type in sourceItem.types {
-        if let data = sourceItem.data(forType: type) {
-          savedItem.setData(data, forType: type)
-        }
-      }
-      savedItems.append(savedItem)
+    switch acquisition {
+    case let .accepted(items, changeCount):
+      savedItems = items
+      acceptedChangeCount = changeCount
+    case .failed:
+      return copyToClipboard(text)
+    case .timedOut, .unstable, .busy:
+      return .unavailable
     }
 
-    pasteboard.clearContents()
-    pasteboard.setString(text, forType: .string)
-    let insertedChangeCount = pasteboard.changeCount
+    guard dependencies.isTargetFocused(target) else {
+      return copyToClipboard(text)
+    }
+    guard let insertedChangeCount = stageClipboardText(
+      text,
+      ifUnchangedSince: acceptedChangeCount
+    ) else { return .unavailable }
 
-    guard dependencies.isTargetFocused(target),
-       dependencies.postPasteShortcut() else { return }
+    guard dependencies.postPasteShortcut() else {
+      restoreClipboard(savedItems, ifUnchangedSince: insertedChangeCount)
+      return .unavailable
+    }
     await dependencies.waitForPasteRead()
-
-    // Reads do not change changeCount. The delay gives asynchronous editors
-    // time to read; this guard protects newer clipboard contents.
-    guard pasteboard.changeCount == insertedChangeCount else { return }
-    pasteboard.clearContents()
-    if !savedItems.isEmpty {
-      pasteboard.writeObjects(savedItems)
-    }
-  }
-
-  private func copyToClipboard(_ text: String) {
-    let pasteboard = dependencies.pasteboard
-    pasteboard.clearContents()
-    pasteboard.setString(text, forType: .string)
+    restoreClipboard(savedItems, ifUnchangedSince: insertedChangeCount)
+    return .inserted
   }
 
   private static func postPasteShortcut() -> Bool {

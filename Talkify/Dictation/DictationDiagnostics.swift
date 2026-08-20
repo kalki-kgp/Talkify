@@ -16,7 +16,7 @@ final class DictationDiagnostics {
     var applicationName: String?
     var characterCount: Int
     var hadFocusedElement: Bool
-    var outcome: TextInsertionService.Outcome
+    var outcome: TextInsertionService.InsertionOutcome
     var failure: String?
     var at: Date
   }
@@ -56,7 +56,7 @@ final class DictationDiagnostics {
     applicationName: String?,
     characterCount: Int,
     hadFocusedElement: Bool,
-    outcome: TextInsertionService.Outcome
+    outcome: TextInsertionService.InsertionOutcome
   ) {
     lastReport = Report(
       applicationName: applicationName,
@@ -73,7 +73,7 @@ final class DictationDiagnostics {
       applicationName: nil,
       characterCount: 0,
       hadFocusedElement: false,
-      outcome: .nothingToInsert,
+      outcome: .unavailable,
       failure: message,
       at: Date()
     )

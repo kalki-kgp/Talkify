@@ -63,6 +63,18 @@ _Avoid_: Keyword, hint, phrase count
 Speaking the focused application's selected text out loud with an Apple system voice.
 _Avoid_: TTS mode, Speak selection
 
+**Drop Transcription**:
+Text produced from an audio or video file the user drops on the HUD.
+_Avoid_: File dictation, import, batch transcription
+
+**Drop Target**:
+The HUD state that accepts a dropped media file.
+_Avoid_: Drop zone, catch area
+
+**Staged transcript**:
+A finished **Drop Transcription** held in a temporary folder under its final name while the HUD offers it, before a drag or the card's timer decides where it lands.
+_Avoid_: Draft, cache, pending file
+
 **Settings section**:
 A navigable category of persisted application preferences with a visible user-facing purpose.
 _Avoid_: Placeholder tab, settings page
@@ -104,20 +116,35 @@ _Avoid_: Transcript history, cloud analytics
 - The simulated notch omits the corner fillets that hug a physical housing
 - The HUD behaves identically on every display; only the notch measurement differs
 - **HUD size** scales the whole HUD shape — width, bands, corner radius, draft text, and each voice visual together — so a smaller HUD keeps its voice visual instead of trading it away
-- **HUD size** is a Settings slider from 60% to 100% in 5% steps, defaulting to 100%, and applies on every display rather than only where there is no notch
+- **HUD size** is a Settings slider from 20% to 100% in 5% steps, defaulting to 100%, and applies on every display rather than only where there is no notch
+- A display raises its own **HUD size** floor when the picked size would leave the shape narrower than the housing it descends from plus its fillets: a shape narrower than its housing reads as a tab floating under the notch, and its fillets land inside the cutout with no bezel to meet
+- That floor cannot be one number: a notch is a fixed physical width but its width in points moves with the scaled display mode, so the same MacBook reports roughly 155 points under More Space and 273 under Larger Text; a display with no notch keeps the slider's own minimum, which is where a smaller HUD is wanted because every point the shape covers is screen the user was working in
+- A HUD that will show draft text has a second floor at 40%, where the draft is still 6 points: Compact is built around the live draft and Reduce Motion restores it for every visual, so both stop there while Waveform and Edge Glow, which replace the draft entirely, go down to 20%
+- The **HUD size** slider offers only the sizes the selected voice visual can be shown at, and the higher of the two floors wins whenever both apply
+- A size below the selected visual's floor stays persisted and returns when a visual that can show it is picked again
 - The housing band and the fillets never scale with **HUD size**: the band's height is the physical notch on a notched display and the menu bar's clearance elsewhere, and a fillet exists to meet a physical bezel
 - The host window stays sized for the 100% shape whatever the **HUD size**, so a smaller shape centers inside the same fixed window
 - The HUD appears above full-screen applications and on every Space
-- The HUD is display-only: mouse clicks pass through it and it never takes focus
+- The HUD is display-only during Direct Dictation: mouse clicks pass through it and it never takes focus
+- The HUD accepts the mouse only as a **Drop Target** and while it holds a finished **Drop Transcription**; it never takes focus in either state
 - The HUD's display is locked when the session starts and does not follow windows
 - If the HUD's display disconnects mid-session, the HUD moves to the pointer's display
 - The HUD is the only surface for dictation status and error messages
 - HUD status and error messages dismiss themselves after about two seconds
+- The HUD writes nothing while it retracts and its bands do not resize: the shape leaves exactly as it stood, and its text and layout reset only once it is off screen
+- The wait between the last word and the recognized text is silent — no label stands in for it, and the voice visual comes to rest rather than reading the silence as a dead microphone
+- Compact opens with no text at all, because it is built around the live draft and a placeholder would be words nobody spoke
+- The HUD's shaders and the particle cloud's compute kernels are compiled at launch, so the cost never lands on the first frames of a session
 - The HUD shows a live visual that reacts to microphone audio while listening
 - Settings changes apply to the live app and persist immediately; Settings has no Save step
 - The Appearance preview uses the same preferences and HUD surface as Direct Dictation
 - Settings changes update the Appearance preview immediately, while an active Direct Dictation session keeps the choices captured at session start
-- Dictation session settings include the voice visual, waveform style, glow palette, glow center, reveal style, long-draft behavior, HUD size, sound set, sound enabled state, and sound volume
+- Dictation session settings include the voice visual, waveform style, glow palette, glow center, reveal style, long-draft behavior, HUD size, sound set, sound enabled state, sound volume, insertion destination, the transcription history choice, and whether the session lowers other audio
+- **Direct Dictation** can lower other audio while it listens and put it back when the session ends, cancels or fails; it is off by default because the control it moves is system-wide
+- macOS has no per-application ducking, so lowering other audio moves the default output device's own volume and quiets Talkify's session sounds along with everything else
+- A lowered volume is restored only while it is still the value Talkify set: a volume the user changed mid-session is theirs, the same rule the clipboard restore follows
+- The device that was lowered is the one restored, not whichever output is default when the session ends: the default can change mid-session, and the volume that needs putting back belongs to the device that was quieted
+- An output with no settable volume does not duck, and neither does one already at silence
 - A third voice visual, Compact, shows a small five-bar voice indicator beside the leading-aligned live draft inside the shape, after the iOS Dynamic Island caption look; the shape grows with the draft
 - Compact is the only visual that shows the live draft while listening; Waveform and Edge Glow replace the draft text entirely
 - An In the Shape live-draft placement for Waveform and Edge Glow was prototyped and removed; the draft-in-shape presentation belongs to Compact alone
@@ -192,12 +219,27 @@ _Avoid_: Transcript history, cloud analytics
 - If **Direct Dictation** hears no speech in the first 15 seconds, it closes and inserts nothing
 - Once speech has arrived, the session stays open until the user ends or cancels it
 - **Direct Dictation** ends by inserting text into the previously focused control
+- An insertion destination setting offers three deliveries: insert into the app, copy to the clipboard, or both
+- The default insertion destination inserts into the previously focused control exactly as before the setting existed
+- The clipboard-only destination skips the paste and the clipboard restore; the insert-and-copy destination pastes and leaves the text on the clipboard, skipping the restore
+- The insertion destination is captured in the Dictation session settings snapshot at session start
 - **Direct Dictation** inserts through clipboard paste after Accessibility validates the original target
 - If an app exposes no focused element, Talkify captures and later validates the frontmost application instead
 - Talkify sends the paste event globally only after the captured focus boundary passes validation
-- Clipboard paste restores the previous clipboard after a short delay only if the pasteboard change count still matches Talkify's write
+- Clipboard insertion obtains a complete snapshot within one 600-millisecond acquisition deadline, with one reread permitted if the pasteboard changes during capture
+- If a clipboard read is already active, remains blocked at the deadline, or changes during both permitted reads, Talkify leaves the clipboard and target untouched and reports that insertion failed
+- If a completed clipboard snapshot fails or omits an advertised representation, Talkify places finalized text on the clipboard for manual paste
+- After a successful paste, Talkify restores the accepted snapshot after a short delay only if the pasteboard change count still matches Talkify's write
 - If the original text target disappears, Talkify places finalized text on the clipboard without showing a message
 - Early versions persist no audio, recognized text, captions, or transcript history
+- An off-by-default **Save transcription history** setting exists; turning it on is the one explicit exception to the no-persistence line above
+- While history is on, each completed **Direct Dictation** session appends a timestamped entry to a daily plain-text file in a user-visible folder defaulting to `~/Documents/Talkify/`
+- A history entry names the application the text was aimed at, meaning the one that held focus when the session started, because a record of what was said is easier to use later when it says where it was being said
+- History is written before insertion, so an entry names where the words were headed rather than where they landed; a clipboard-only session names the clipboard, since it aimed at no application at all
+- An entry whose application cannot be named keeps the bare timestamp rather than reading "Unknown"
+- The history folder is the user's pick, and Clear History removes only the day files Talkify wrote there
+- The history choice is captured in the Dictation session settings snapshot at session start
+- A **Drop Transcription** writes a transcript file because the user asked for one; Talkify keeps no copy of it and no record that it happened
 - Talkify persists application settings and aggregate **Direct Dictation** usage; macOS manages permission state
 - **Insights** stores only the local calendar day, word count, speaking duration, and completed-session count
 - **Insights** never stores recognized text or target application identifiers
@@ -210,7 +252,23 @@ _Avoid_: Transcript history, cloud analytics
 - **Read Aloud** speaks the focused application's selected text with Apple speech synthesis, on-device and offline; Siri voices are unavailable to third-party apps
 - Read Aloud reads the selection through Accessibility only; if nothing is selected it shows "No text selected" through the HUD and speaks nothing
 - Read Aloud starts and stops from the status menu ("Read Selected Text" / "Stop Reading") or with its recorded shortcut (Option+Escape by default, matching macOS speak-selection)
-- The Shortcuts section records bindings System Settings-style: the control arms and the next pressed key becomes the binding; the Dictation Trigger takes a single key (including a bare modifier like fn), Read Aloud takes a combo, and plain Escape cancels recording
+- The Shortcuts section records bindings System Settings-style: the control arms and the next pressed key becomes the binding, and plain Escape cancels recording
+- A **Dictation Trigger** is one key plus any modifiers held with it; only the trigger may bind a bare modifier such as fn, because a hold gesture needs a key that can be held
+- A modifier chord commits on the first release rather than on each press, so reaching fn + ⌥ is not cut short by ⌥ landing first
+- The bound key of a chord is the one that cannot be a required modifier: fn pressed before or after ⌥ still binds fn, because only command, option, control and shift can be required
+- A **Dictation Trigger** fires on exactly the modifiers it was recorded with and no others: fn alone no longer starts a session once the trigger is fn + ⌥, which is the point of binding a combination on a keyboard where every single key is already spoken for
+- A held **Dictation Trigger** ends the moment its combination breaks, whichever key was released first, and starts the moment it completes, whichever key completed it
+- Only the trigger's own key is swallowed; a modifier that merely completes or breaks the combination passes through, so other applications still see it go down and up
+- The Shortcuts section draws the user's own keyboard above the recorders, with each binding's keys lit in its own color, because which keys are still free is a question about a physical object that a list of labels cannot answer
+- The drawn keyboard takes its shape from the attached keyboard and its legends from the selected input source, so it matches the board in front of the user rather than a US one: an ISO board puts § left of 1, moves the backtick beside left ⇧ and runs Return down two rows, and an AZERTY or Georgian source relabels the same keys
+- The drawn keyboard relabels itself when the input source changes while Settings is open, and carries no title or caption: the drawing says what it is and the lit keys are the label
+- A JIS keyboard is drawn with ISO geometry until its extra keys can be checked on real hardware; its legends are still its own
+- A binding lights both sides of every modifier it requires, because either one satisfies it
+- Arming a row makes the drawn keyboard live: clicking a modifier holds it for the combination and clicking it again lets it go, so a mis-click is undoable; clicking anything else finishes the binding, and a row with only modifiers picked offers a control to use them as they are
+- The keyboard's border lights in the accent while a row is armed, because nothing else on screen says the drawing has become something that can be clicked
+- Clicking is a second way to assign, not a replacement for pressing: it is the only way to assign a combination the recorder cannot capture, because the system or another application swallows it before Talkify sees it
+- Each binding is a row whose keys are drawn as one cap per physical key on the leading edge, modifiers first in the order macOS writes them, and whose description names those keys in the sentence that says what they do
+- The whole row is the recorder: clicking anywhere in it arms, and while armed the caps collapse to one placeholder and the description says what to press
 - A non-modifier Dictation Trigger key is swallowed while bound: press starts the hold gesture, release ends it, and autorepeat is ignored
 - While a key recorder is armed, global trigger handling pauses so the rebind keystroke cannot start a session
 - The status menu shows the current bindings (a badge for the trigger, a key equivalent for Read Aloud where representable) and updates immediately when Settings changes them
@@ -220,6 +278,47 @@ _Avoid_: Transcript history, cloud analytics
 - Talkify cannot download synthesis voices (no public API); the Read Aloud section deep-links System Settings and the voice list refreshes live when a download finishes
 - Personal Voice requires the user's authorization, requested from the Read Aloud section; it is personal, non-commercial use by Apple's terms
 - Read Aloud uses Apple speech synthesis exclusively; local-inference voice models were researched and rejected to keep the app dependency-free — the project stays open source and integrations are left to contributors
+- Dragging a file toward the top edge of a display reveals the **Drop Target**, and the HUD opens as the pointer approaches the notch
+- An open **Drop Target** holds until the drag leaves the shape it opened into, not the narrower band that opened it, and it never falls back to a peek: collapsing while the pointer is still on the target reads as the target refusing the drop
+- The **Drop Target** appears only for a file the system reports as audio or video, so no list of file extensions is maintained
+- The **Drop Transcription** surfaces take their accent from the selected voice visual: Edge Glow lends its palette — its gradient on the target's edge, its one representative hue everywhere else — and every other visual keeps the Talkify blue
+- The status item ghost fills in that same accent while a **Drop Transcription** runs, so the HUD and the menu bar are never two different colors
+- A **Drop Transcription** plays the same three session sounds at the same three moments: Begin when the shape takes the file, End when the transcript is ready, Paste when the result is taken or saved
+- The sound set, mute, and volume govern **Direct Dictation** and **Drop Transcription** alike; there is one sound set for the app
+- The Drop Transcription section shows a live preview of the HUD walking its states, built on the same simulated display as the Appearance preview
+- A **Drop Transcription** palette never reaches Settings chrome, which stays Talkify blue
+- Talkify learns a drag has started from a global mouse-drag monitor, and reveals on approach to the top edge rather than on every drag
+- A drop does not start a **Drop Transcription**: the HUD holds the dropped file, showing its icon and name, and the job begins once that has been seen
+- The **Drop Transcription** then runs with the HUD dismissed instead of holding progress
+- Releasing over the open **Drop Target** is a drop, and only the drop dismisses the HUD; dismissing on the release itself refuses the drop and macOS flies the dragged item back
+- The **Drop Target** declares the broadest drop type it can, because a destination that is not offered the drop refuses it
+- The HUD accepts key status only while it wants the mouse — as a **Drop Target** or holding a transcript — and never activates Talkify
+- A **Drop Transcription** always opens and closes by growing the shape out of the housing; that is not one of the reveal styles and is never offered to **Direct Dictation**, whose reveal stays the user's pick
+- The **Drop Target** accepts a drop without reading anything at all, so the dragged item leaves the pointer as fast as it does on the Desktop; the file is the one the target opened for, already read from the drag pasteboard on the way in
+- The HUD shows nothing at all while a **Drop Transcription** runs; the status item is the only place that reports it
+- A **Drop Transcription** runs in the background: **Direct Dictation** stays available and the two sessions do not block each other
+- The status item carries **Drop Transcription** progress; cancelling a running job is not offered yet
+- A finished **Drop Transcription** becomes a **Staged transcript** rather than a saved file, so the user's next move decides where it goes
+- A **Staged transcript** is a real file for the whole of the card's life; nothing is held only in memory
+- A finished **Drop Transcription** returns the HUD holding the **Staged transcript** as a drag source
+- The returned HUD shows a card with the file name, word count, and media duration, never the transcript text
+- Dragging the card off the HUD is how the user chooses where the transcript goes; a destination that accepts it ends the **Drop Transcription** and nothing is written elsewhere
+- The card's drag carries the transcript twice, as the written file and as plain text, and the receiver picks: a folder writes the file, a text field takes the words
+- Talkify never decides between text and a file by transcript length; only the receiver knows its own limits, which is why the chat clients that convert a long paste to a file set that rule at their own message limit
+- Clicking the card copies the transcript to the clipboard and ends the **Drop Transcription**, for receivers that always prefer a file to text
+- The card shows its word count and duration, and trades them for its two gestures while the pointer is over it
+- The card's drag is copy-only, because the **Staged transcript** sits in a folder the user never sees; Talkify removes that folder once a destination has taken the file
+- A drag let go over nothing changes nothing: the card returns to counting down
+- The returned HUD dismisses itself after five seconds; the timer cancels while the pointer is over the card and stays cancelled while a drag from it is in flight
+- A card that expires untaken writes its transcript beside its source file by default, or into a folder chosen in Settings
+- If the source's location cannot be written, the transcript falls back to the chosen folder and then to the Desktop
+- A transcript never overwrites an earlier one; a colliding name gains a numbered suffix
+- The HUD names the folder an untaken transcript went to before it retracts, because that write happens after the card is gone
+- Quitting Talkify, or dropping a second file, writes a **Staged transcript** to its save location instead of losing it
+- **Drop Transcription** also starts from the status menu, for users who never discover the drag
+- A **Drop Transcription** of a video with no audio track ends with a message rather than an empty transcript
+- Version 1 writes plain text for audio and video alike; **Subtitles** output is a later format, not launch scope
+- A **Drop Transcription** uses the primary **Dictation Language**; with a second language configured the open **Drop Target** splits into two labeled halves and the drop chooses the language
 - Talkify updates itself with Sparkle; the appcast is a static file in the repository and there is no Talkify server
 - Every update is verified against an EdDSA signature before installation, and an update that fails verification is discarded
 - Update checks run daily and may be turned off; downloading updates automatically is opt-in and installing always waits for the user
@@ -282,7 +381,7 @@ _Avoid_: Transcript history, cloud analytics
 - Direct Dictation and Sounds Preview use the selected volume; Settings can mute all Direct Dictation sounds
 - The Appearance preview simulates a small bounded microphone-level loop and holds a quiet frame under Reduce Motion
 - The Appearance preview always uses fixed notched MacBook reference geometry; the active HUD still adapts to its display
-- The Appearance preview shows the picked **HUD size** directly, because the size applies on every display including the preview's notched reference
+- The Appearance preview shows the picked **HUD size** directly on its notched reference, so a size below what that reference can show stops changing the preview, which is what the same size does on a real notched display
 - The Appearance preview draws a simulated menu bar strip (Apple menu, clock, and the Talkify ghost status icon) so the shape reads as a notch at the top of a display
 - Settings navigation uses a fixed Talkify blue accent; selected Glow palettes do not recolor the Settings shell
 

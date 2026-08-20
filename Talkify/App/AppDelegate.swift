@@ -5,7 +5,9 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var settings: AppSettings?
   private var statusItemController: StatusItemController?
+  private var hudStage: HUDStage?
   private var hudController: DictationHUDController?
+  private var dropTranscriptionController: DropTranscriptionController?
   private var dictationController: DirectDictationController?
   private var readAloudController: ReadAloudController?
   private var settingsWindowController: SettingsWindowController?
@@ -27,10 +29,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
  
  
 
+  /// True while this process hosts the test suite rather than a user.
+  ///
+  /// The live launch path requests microphone and speech permissions and
+  /// installs the event tap, which pops system permission dialogs over every
+  /// automated test run on a machine that has not granted them. Hosting
+  /// tests skips the launch entirely: tests build the objects they exercise,
+  /// and a test that means to see a permission prompt drives
+  /// PermissionService itself, on purpose.
+  private static var isHostingTests: Bool {
+    let environment = ProcessInfo.processInfo.environment
+    return environment["XCTestSessionIdentifier"] != nil
+      || environment["XCTestConfigurationFilePath"] != nil
+      || environment["XCTestBundlePath"] != nil
+  }
+
   func applicationDidFinishLaunching(_ notification: Notification) {
+    guard !Self.isHostingTests else { return }
+
+    // Before anything can be staged: a crash or a force-quit while a
+    // transcript card was on screen leaves the user's speech in cleartext
+    // under $TMPDIR, and nothing else ever removes it.
+    StagedTranscript.sweep()
+
     let settings = AppSettings()
     self.settings = settings
-    let hudController = DictationHUDController(settings: settings)
+    // One shape, two features. The stage owns the window and hands it out;
+    // each feature's HUD controller only decides what its surface says.
+    let stage = HUDStage(settings: settings)
+    self.hudStage = stage
+    let hudController = DictationHUDController(stage: stage, settings: settings)
     let usageTracker = UsageTracker()
     let vocabulary = VocabularyList()
     let styleRules = StyleRuleList()
@@ -73,9 +101,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     self.readAloudController = readAloudController
 
+    let dropTranscriptionController = DropTranscriptionController(
+      settings: settings,
+      hud: DropHUDController(stage: stage)
+    )
+    self.dropTranscriptionController = dropTranscriptionController
+    dropTranscriptionController.start()
+    dropTranscriptionController.onProgressChange = { [weak self, weak settings] fraction in
+      self?.statusItemController?.setTranscriptionProgress(
+        fraction,
+        accent: settings?.sessionSettings.dropAccent ?? SettingsTheme.accentColor
+      )
+    }
+
     let statusItemController = StatusItemController(
       toggleDictation: { dictationController.toggleFromMenu() },
       toggleReadAloud: { readAloudController.toggle() },
+      transcribeFile: { dropTranscriptionController.pickFile() },
       openSettings: { [weak self] in self?.showSettings() },
       checkForUpdates: { [weak self] in self?.updaterService.checkForUpdates() }
     )
@@ -102,6 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     dictationController.onReadAloudTriggered = { [weak readAloudController] in
       readAloudController?.toggle()
     }
+
+    // Compiles the HUD's shaders now, so the cost does not land on the first
+    // frames of the first dictation.
+    HUDShaderWarmUp.start()
 
     // Requests permissions and prepares the selected Speech Model
     // shortly after launch (CONTEXT.md).
@@ -206,10 +252,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
   }
 
+  /// A released trigger whose text has not landed yet is the one thing worth
+  /// delaying a quit for: the user spoke it and expects to see it. AppKit's
+  /// deferred termination is the only way to wait, because
+  /// `applicationWillTerminate` is synchronous and the finish needs the main
+  /// actor to make progress.
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    guard let dictationController, dictationController.isFinishing else {
+      return .terminateNow
+    }
+    Task { @MainActor in
+      await dictationController.waitForFinish(timeout: .seconds(2))
+      sender.reply(toApplicationShouldTerminate: true)
+    }
+    return .terminateLater
+  }
+
   func applicationWillTerminate(_ notification: Notification) {
     dictationController?.stop()
     learningController?.cancel()
     calibrator?.cancel()
+    // A transcript the HUD is still offering only exists in its staging folder,
+    // so quitting writes it out rather than losing it.
+    dropTranscriptionController?.commitOfferedTranscript()
   }
 
   private func showSettings() {
@@ -219,7 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if settingsWindowController == nil {
       settingsWindowController = SettingsWindowController(
         settings: settings,
-        sounds: DictationHUDSounds(),
+        sounds: HUDSounds(),
         runtimeState: settingsRuntimeState,
         usageTracker: usageTracker,
         vocabulary: vocabulary,

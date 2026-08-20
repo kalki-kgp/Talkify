@@ -5,18 +5,31 @@ import SwiftUI
 /// duration, and a preference change stops playback (CONTEXT.md).
 struct SoundsSettingsView: View {
   @Bindable var settings: AppSettings
-  let sounds: DictationHUDSounds
+  let sounds: HUDSounds
 
   @State private var isPreviewing = false
   @State private var previewTask: Task<Void, Never>?
 
   var body: some View {
-    SettingsCard(title: "Direct Dictation") {
+    SettingsCard(title: "While dictating") {
+      SettingsRow(
+        title: "Lower other audio",
+        description: "Turn the volume down while a session listens, and put it "
+          + "back afterwards. Moves the system output, so it quiets everything"
+      ) {
+        Toggle("Lower other audio", isOn: $settings.duckOtherAudioWhileDictating)
+          .labelsHidden()
+          .toggleStyle(.switch)
+      }
+    }
+
+    SettingsCard(title: "Sounds") {
       SettingsRow(
         title: "Play sounds",
-        description: "Play cues when dictation begins, ends, and inserts text"
+        description: "Play cues when dictation and file transcription begin, "
+          + "end, and deliver their text"
       ) {
-        Toggle("Play Direct Dictation sounds", isOn: $settings.dictationSoundsEnabled)
+        Toggle("Play sounds", isOn: $settings.dictationSoundsEnabled)
           .labelsHidden()
           .toggleStyle(.switch)
       }
@@ -32,7 +45,7 @@ struct SoundsSettingsView: View {
 
       SettingsSliderRow(
         title: "Volume",
-        description: "The volume of all Direct Dictation sounds",
+        description: "The volume of every sound Talkify plays",
         value: $settings.dictationSoundVolume,
         range: DictationSoundSettings.volumeRange,
         valueLabel: { "\(Int(($0 * 100).rounded()))%" }

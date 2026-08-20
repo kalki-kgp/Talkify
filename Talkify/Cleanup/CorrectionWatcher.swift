@@ -18,7 +18,9 @@ final class CorrectionWatcher {
   /// sentence before they send it. Whichever last showed an edit wins.
   private static let readDelays: [Duration] = [.seconds(4), .seconds(15)]
 
-  private let insertionService: TextInsertionService
+  /// Reads the target field back. A closure rather than the insertion service
+  /// itself, so the watcher has no route to write anything anywhere.
+  private let readFieldValue: @MainActor (TextInsertionService.Target) -> String?
   private let buffer: CorrectionBuffer
 
   /// Fired after a pair lands, so Settings can say how many are held without
@@ -27,8 +29,11 @@ final class CorrectionWatcher {
 
   private var watchTask: Task<Void, Never>?
 
-  init(insertionService: TextInsertionService, buffer: CorrectionBuffer) {
-    self.insertionService = insertionService
+  init(
+    readFieldValue: @escaping @MainActor (TextInsertionService.Target) -> String?,
+    buffer: CorrectionBuffer
+  ) {
+    self.readFieldValue = readFieldValue
     self.buffer = buffer
   }
 
@@ -39,7 +44,7 @@ final class CorrectionWatcher {
   func watch(inserted: String, target: TextInsertionService.Target?) {
     cancel()
     guard let target, !inserted.isEmpty else { return }
-    guard let baseline = insertionService.readValue(of: target),
+    guard let baseline = readFieldValue(target),
       baseline.contains(inserted)
     else { return }
 
@@ -53,7 +58,7 @@ final class CorrectionWatcher {
       reads: for delay in Self.readDelays {
         try? await Task.sleep(for: delay)
         guard !Task.isCancelled, let self else { return }
-        guard let current = insertionService.readValue(of: target) else { break reads }
+        guard let current = readFieldValue(target) else { break reads }
 
         switch CorrectionDiff.reading(
           inserted: inserted,
