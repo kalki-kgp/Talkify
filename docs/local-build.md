@@ -93,7 +93,7 @@ same way. Both are present and correct in `dist/Talkify.app`; verify with
 `strings dist/Talkify.app/Contents/Resources/Assets.car | grep MenuBarIcon`.
 Running them for real needs Xcode's `xctest` host.
 
-Everything else runs and passes: 395 of 397 tests.
+Everything else runs and passes: 419 of 421 tests.
 
 ## Signing and permissions
 
@@ -126,8 +126,8 @@ otherwise. Neither needs an Apple Developer account. Two consequences:
 | Variable | Default |
 | --- | --- |
 | `TALKIFY_REFERENCE_APP` | `/Applications/Talkify.app` |
-| `TALKIFY_VERSION` | `0.6.0-local` |
-| `TALKIFY_BUILD` | `140` |
+| `TALKIFY_VERSION` | `0.6.1-local` |
+| `TALKIFY_BUILD` | `141` |
 | `TALKIFY_BUNDLE_ID` | `com.tgomareli.Talkify` |
 | `TALKIFY_CONFIGURATION` | `release` |
 | `TALKIFY_SIGN_IDENTITY` | `-` (ad-hoc) |

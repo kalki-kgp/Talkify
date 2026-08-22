@@ -28,8 +28,8 @@ APP="$DIST/Talkify.app"
 CONTENTS="$APP/Contents"
 
 REFERENCE_APP="${TALKIFY_REFERENCE_APP:-/Applications/Talkify.app}"
-VERSION="${TALKIFY_VERSION:-0.6.0-local}"
-BUILD_NUMBER="${TALKIFY_BUILD:-140}"
+VERSION="${TALKIFY_VERSION:-0.6.1-local}"
+BUILD_NUMBER="${TALKIFY_BUILD:-141}"
 BUNDLE_ID="${TALKIFY_BUNDLE_ID:-com.tgomareli.Talkify}"
 CONFIGURATION="${TALKIFY_CONFIGURATION:-release}"
 # Prefer a stable local identity over ad-hoc signing. macOS keys an
