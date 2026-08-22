@@ -15,6 +15,7 @@ struct SettingsView: View {
   let learning: CleanupLearningController
   let diagnostics: DictationDiagnostics
   let updater: SparkleUpdaterService
+  let launchAtLogin: LaunchAtLoginService
   let onClose: () -> Void
 
   @Environment(\.colorSchemeContrast) private var contrast
@@ -50,7 +51,8 @@ struct SettingsView: View {
             learning: learning,
             diagnostics: diagnostics,
             runtimeState: runtimeState,
-            updater: updater
+            updater: updater,
+            launchAtLogin: launchAtLogin
           )
           .id(selectedSection)
           .transition(.opacity)
@@ -243,6 +245,7 @@ private struct SettingsContent: View {
   let diagnostics: DictationDiagnostics
   let runtimeState: SettingsRuntimeState
   let updater: SparkleUpdaterService
+  let launchAtLogin: LaunchAtLoginService
 
   @Environment(\.colorSchemeContrast) private var contrast
 
@@ -258,6 +261,8 @@ private struct SettingsContent: View {
         }
 
         switch section {
+        case .general:
+          GeneralSettingsView(launchAtLogin: launchAtLogin)
         case .appearance:
           AppearanceSettingsView(settings: settings)
         case .sounds:
@@ -335,6 +340,7 @@ private struct SettingsContent: View {
     // Never started, so the preview shows the pane's disabled state rather
     // than reaching for the network.
     updater: SparkleUpdaterService(),
+    launchAtLogin: LaunchAtLoginService(),
     onClose: {}
   )
 }

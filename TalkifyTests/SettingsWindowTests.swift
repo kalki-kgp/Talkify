@@ -27,7 +27,8 @@ struct SettingsWindowTests {
         queue: CleanupSuggestionQueue(styleRules: StyleRuleList(), vocabulary: VocabularyList())
       ),
       diagnostics: DictationDiagnostics(),
-      updater: SparkleUpdaterService()
+      updater: SparkleUpdaterService(),
+      launchAtLogin: LaunchAtLoginService()
     )
     let window = try #require(controller.window)
     #expect(window.title == "Talkify Settings")
@@ -42,8 +43,8 @@ struct SettingsWindowTests {
 
   @Test func settingsSectionsStayFocusedOnImplementedFeatures() {
     let expected: [SettingsSection] = [
-      .appearance, .sounds, .dictation, .dropTranscription, .readAloud, .language,
-      .vocabulary, .cleanup, .shortcuts, .updates, .insights, .diagnostics,
+      .general, .appearance, .sounds, .dictation, .dropTranscription, .readAloud,
+      .language, .vocabulary, .cleanup, .shortcuts, .updates, .insights, .diagnostics,
     ]
     #expect(SettingsSection.allCases == expected)
     #expect(SettingsSectionGroup.settings.sections == expected)

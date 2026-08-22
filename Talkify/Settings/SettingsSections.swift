@@ -13,6 +13,7 @@ enum SettingsSectionGroup: String, CaseIterable, Identifiable {
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable {
+  case general
   case appearance
   case sounds
   case dictation
@@ -31,6 +32,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
   var title: String {
     switch self {
+    case .general: "General"
     case .appearance: "Appearance"
     case .sounds: "Sounds"
     case .dictation: "Dictation"
@@ -48,15 +50,16 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
   var subtitle: String {
     switch self {
+    case .general: "Choose how Talkify starts"
     case .appearance: "Customize the Direct Dictation HUD"
     case .sounds: "Choose and preview the session sounds"
     case .dictation: "Choose where finished dictation text goes"
     case .dropTranscription: "Transcribe audio and video files"
     case .readAloud: "Choose the voice that reads selected text"
-    case .language: "Pick your dictation languages and their keys"
+    case .language: "Pick your dictation languages and their triggers"
     case .vocabulary: "Teach Talkify the words it keeps getting wrong"
     case .cleanup: "Tidy up dictated text before it lands"
-    case .shortcuts: "Rebind the Direct Dictation and Read Aloud keys"
+    case .shortcuts: "Rebind Direct Dictation triggers and Read Aloud"
     case .updates: "Keep Talkify current"
     case .insights: "Review your local Direct Dictation activity"
     case .diagnostics: "What Talkify can see, and what it last did"
@@ -65,6 +68,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
   var icon: String {
     switch self {
+    case .general: "gearshape"
     case .appearance: "sparkles"
     case .sounds: "waveform"
     case .dictation: "text.cursor"

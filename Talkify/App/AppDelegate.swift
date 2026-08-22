@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var calibrator: CleanupCalibrator?
   private let settingsRuntimeState = SettingsRuntimeState()
   private let updaterService = SparkleUpdaterService()
+  private let launchAtLoginService = LaunchAtLoginService()
 
   static func main() {
     let application = NSApplication.shared
@@ -293,7 +294,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         calibrator: calibrator,
         learning: learningController,
         diagnostics: dictationController.diagnostics,
-        updater: updaterService
+        updater: updaterService,
+        launchAtLogin: launchAtLoginService
       )
     }
     settingsWindowController?.show()

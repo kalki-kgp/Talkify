@@ -27,7 +27,8 @@ final class SettingsWindowController: NSWindowController {
     calibrator: CleanupCalibrator,
     learning: CleanupLearningController,
     diagnostics: DictationDiagnostics,
-    updater: SparkleUpdaterService
+    updater: SparkleUpdaterService,
+    launchAtLogin: LaunchAtLoginService
   ) {
     let window = TalkifySettingsWindow(
       contentRect: NSRect(origin: .zero, size: Self.windowSize),
@@ -48,6 +49,7 @@ final class SettingsWindowController: NSWindowController {
         learning: learning,
         diagnostics: diagnostics,
         updater: updater,
+        launchAtLogin: launchAtLogin,
         onClose: { [weak window] in window?.close() }
       )
     )
